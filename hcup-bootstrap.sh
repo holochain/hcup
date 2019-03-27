@@ -41,6 +41,30 @@ case "${__arch}" in
     ;;
 esac
 
+check_hash() {
+  __ldir="$1"
+  __lfile="$2"
+  __lhash="$3"
+
+  __use="a"
+  which sha256sum
+  if [ $? -ne 0 ]; then
+    which shasum
+    if [ $? -ne 0 ]; then
+      die "could not find sha256 sum utility"
+    fi
+    __use="b"
+  fi
+
+  if [ "${__use}" = "a" ]; then
+    (cd "${__ldir}" && echo "${__lhash}  ${__lfile}" | sha256sum --check)
+  else
+    (cd "${__ldir}" && echo "${__lhash}  ${__lfile}" | shasum -a 256 --check)
+  fi
+  if [ $? -ne 0 ]; then
+    die "sha256 sum mismatch"
+  fi
+}
 
 __node_dir="${__data_dir}/${__node_dir}"
 __node_bin="${__node_dir}/bin/node"
@@ -59,12 +83,7 @@ if [ ! -f "${__node_bin}" ]; then
     fi
   fi
 
-  (cd "${__data_dir}" && echo "${__node_hash}  ${__node_file}" | shasum -a 256 --check)
-  if [ $? -ne 0 ]; then
-    echo "sha256 mismatch, expected ${__node_hash} got:"
-    (cd "${__data_dir}" && shasum -a 256 "${__node_file}")
-    die "sha256 mismatch"
-  fi
+  check_hash "${__data_dir}" "${__node_file}" "${__node_hash}"
 
   if [ ! -d "${__node_dir}" ]; then
     (cd "${__data_dir}" && tar xf "${__node_file}")
