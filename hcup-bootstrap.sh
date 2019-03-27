@@ -145,10 +145,37 @@ var hcup_bootstrap = (function (exports) {
 	    }
 
 	    const res = fs.readFileSync('/etc/os-release', 'utf8');
-	    if (res.includes('Debian')) {
+	    if (/ID=debian/m.test(res)) {
 	      env.distro = 'debian';
 	      env.selector.push('debian');
-	      const m = res.match(/VERSION_ID="(\d+)"/m);
+	      const m = res.match(/VERSION_ID="([^"]+)"/m);
+	      if (m && m.length >= 2) {
+	        env.selector.push(m[1]);
+	        env.distro_version = m[1];
+	      }
+	    }
+	  } catch (e) {
+	    console.error(e);
+	  }
+	};
+	});
+
+	var ubuntu = createCommonjsModule(function (module, exports) {
+	// check to see if we are debian
+
+	const fs = require('fs');
+
+	module.exports = exports = env => {
+	  try {
+	    if (env.selector.length > 1) {
+	      return
+	    }
+
+	    const res = fs.readFileSync('/etc/os-release', 'utf8');
+	    if (/ID=ubuntu/m.test(res)) {
+	      env.distro = 'ubuntu';
+	      env.selector.push('ubuntu');
+	      const m = res.match(/VERSION_ID="([^"]+)"/m);
 	      if (m && m.length >= 2) {
 	        env.selector.push(m[1]);
 	        env.distro_version = m[1];
@@ -379,7 +406,7 @@ var hcup_bootstrap = (function (exports) {
 	  env.register('git', '$install', ['linux', 'debian'], async () => {
 	    await env.exec('platform', 'shell', {
 	      cmd: 'sudo',
-	      args: ['apt-get', 'install', 'git']
+	      args: ['apt-get', 'install', '-y', 'git']
 	    });
 	  });
 
@@ -637,8 +664,6 @@ exec "${SINGLETON.nodeBin}" "${env.dataDir}/repo/lib/modules/\${__module}" "$@"
 	  arch: os.arch(),
 	  dataDir: path.resolve(os.homedir(), '.hcup'),
 	  selector: [os.platform()],
-	  modules: {},
-	  lastModule: null
 	};
 
 	if (exports.platform === 'linux') {
@@ -651,6 +676,20 @@ exec "${SINGLETON.nodeBin}" "${env.dataDir}/repo/lib/modules/\${__module}" "$@"
 
 	nix(exports);
 	debian(exports);
+	ubuntu(exports);
+
+	exports.log = (...args) => {
+	  console.log('[hcup]', ...args);
+	};
+
+	exports.error = (...args) => {
+	  console.error('[hcup]', ...args);
+	};
+
+	exports.log(JSON.stringify(exports, null, 2));
+
+	exports.modules = {};
+	exports.lastModule = null;
 
 	exports.exec = async (moduleName, fnName, ...args) => {
 	  if (!(moduleName in exports.modules)) {
@@ -682,7 +721,9 @@ exec "${SINGLETON.nodeBin}" "${env.dataDir}/repo/lib/modules/\${__module}" "$@"
 	      break
 	    }
 	    ref = ref[s];
-	    maybeFn = ref._;
+	    if (ref._) {
+	      maybeFn = ref._;
+	    }
 	  }
 
 	  if (!maybeFn) {
@@ -720,14 +761,6 @@ exec "${SINGLETON.nodeBin}" "${env.dataDir}/repo/lib/modules/\${__module}" "$@"
 	  ref._ = fn;
 
 	  return exports
-	};
-
-	exports.log = (...args) => {
-	  console.log('[hcup]', ...args);
-	};
-
-	exports.error = (...args) => {
-	  console.error('[hcup]', ...args);
 	};
 
 	let didPrep = false;
@@ -773,19 +806,21 @@ exec "${SINGLETON.nodeBin}" "${env.dataDir}/repo/lib/modules/\${__module}" "$@"
 	node(exports);
 	});
 	var env_1 = env.dataDir;
-	var env_2 = env.exec;
-	var env_3 = env.register;
-	var env_4 = env.lastModule;
-	var env_5 = env.log;
-	var env_6 = env.error;
+	var env_2 = env.log;
+	var env_3 = env.error;
+	var env_4 = env.modules;
+	var env_5 = env.lastModule;
+	var env_6 = env.exec;
+	var env_7 = env.register;
 
 	exports.dataDir = env_1;
 	exports.default = env;
-	exports.error = env_6;
-	exports.exec = env_2;
-	exports.lastModule = env_4;
-	exports.log = env_5;
-	exports.register = env_3;
+	exports.error = env_3;
+	exports.exec = env_6;
+	exports.lastModule = env_5;
+	exports.log = env_2;
+	exports.modules = env_4;
+	exports.register = env_7;
 
 	return exports;
 
