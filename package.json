@@ -1,0 +1,17 @@
+{
+  "name": "holochain-just-works-tm",
+  "version": "0.0.1",
+  "description": "system setup utility for holochain",
+  "main": "lib/index.js",
+  "license": "Apache-2.0",
+  "scripts": {
+    "render-scripts": "node ./build/render-scripts.js",
+    "test": "standard lib/**/*.js build/**/*.js && rollup -c && npm run render-scripts"
+  },
+  "devDependencies": {
+    "handlebars": "^4.1.1",
+    "rollup": "^1.7.0",
+    "rollup-plugin-commonjs": "^9.2.1",
+    "standard": "^12.0.1"
+  }
+}
