@@ -404,6 +404,38 @@ var hcup_bootstrap = (function (exports) {
 	};
 	});
 
+	var installApt = createCommonjsModule(function (module, exports) {
+	module.exports = exports = env => {
+	  async function installApt () {
+	    await env.exec('platform', 'shell', {
+	      cmd: 'sudo',
+	      args: ['apt-get', 'update']
+	    });
+	    await env.exec('platform', 'shell', {
+	      cmd: 'sudo',
+	      args: ['apt-get', 'install', '-y', 'git']
+	    });
+	  }
+
+	  env.register('git', '$install', ['linux', 'debian'], installApt);
+	  env.register('git', '$install', ['linux', 'ubuntu'], installApt);
+	};
+	});
+
+	var installDnf = createCommonjsModule(function (module, exports) {
+	module.exports = exports = env => {
+	  async function installApt () {
+	    await env.exec('platform', 'shell', {
+	      cmd: 'sudo',
+	      args: ['dnf', 'install', '-y', 'git']
+	    });
+	  }
+
+	  env.register('git', '$install', ['linux', 'debian'], installApt);
+	  env.register('git', '$install', ['linux', 'ubuntu'], installApt);
+	};
+	});
+
 	var git = createCommonjsModule(function (module, exports) {
 	module.exports = exports = env => {
 	  async function checkGitVersion () {
@@ -430,19 +462,15 @@ var hcup_bootstrap = (function (exports) {
 	    throw new Error('"git" not found in path. Please install "git".')
 	  });
 
-	  env.register('git', '$install', ['linux', 'debian'], async () => {
-	    await env.exec('platform', 'shell', {
-	      cmd: 'sudo',
-	      args: ['apt-get', 'install', '-y', 'git']
-	    });
-	  });
-
 	  env.register('git', '$install', ['linux', 'nix'], async () => {
 	    await env.exec('platform', 'shell', {
 	      cmd: 'nix-env',
 	      args: ['-i', 'git']
 	    });
 	  });
+
+	  installApt(env);
+	  installDnf(env);
 
 	  env.register('git', 'ensureRepoUpdated', [], async args => {
 	    let needRelaunch = false;
