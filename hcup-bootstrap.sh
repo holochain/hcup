@@ -431,8 +431,7 @@ var hcup_bootstrap = (function (exports) {
 	    });
 	  }
 
-	  env.register('git', '$install', ['linux', 'debian'], installApt);
-	  env.register('git', '$install', ['linux', 'ubuntu'], installApt);
+	  env.register('git', '$install', ['linux', 'fedora'], installApt);
 	};
 	});
 
