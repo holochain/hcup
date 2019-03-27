@@ -724,7 +724,7 @@ exec "${SINGLETON.nodeBin}" "${env.dataDir}/repo/lib/modules/\${__module}" "$@"
 	  const gitDir = path.resolve(env.dataDir, 'repo');
 
 	  const gitRes = await env.exec('git', 'ensureRepoUpdated', {
-	    url: '/home/neonphog/projects/hcup',
+	    url: 'https://github.com/neonphog/hcup.git',
 	    path: gitDir,
 	    branch: 'master'
 	  });
