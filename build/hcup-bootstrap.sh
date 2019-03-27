@@ -5,39 +5,58 @@ die() {
   exit 1
 }
 
-__data_dir="${XDG_DATA_DIR-x}"
-
-if [ "${__data_dir}" = "x" ]; then
-  __data_dir="${HOME-x}"
-fi
-
-if [ "${__data_dir}" = "x" ]; then
-  die "Failed to locate home directory"
-fi
-
-__data_dir="${__data_dir}/.local/share/hcup"
-
+__plat=`uname -s`
 __arch=`uname -m`
-case "${__arch}" in
-  "x86_64")
+case "${__plat}-${__arch}" in
+  "Linux-x86_64")
+    __plat="linux"
+    __arch="x64"
+    ;;
+  "Darwin-x86_64")
+    __plat="darwin"
     __arch="x64"
     ;;
   *)
-    die "unsupported arch ${__arch}"
+    die "unsupported arch ${__plat}-${__arch}"
     ;;
 esac
+
+__data_dir=""
+case "${__plat}" in
+  "linux")
+    if [ "x${XDG_DATA_DIR}" != "x" ]; then
+      __data_dir="${XDG_DATA_DIR}/hcup"
+    elif [ "x${HOME}" != "x" ]; then
+      __data_dir="${HOME}/.local/share/hcup"
+    fi
+    ;;
+  "darwin")
+    if [ "x${HOME}" != "x" ]; then
+      __data_dir="${HOME}/Library/Application Support/host.holo.hcup"
+    fi
+esac
+
+if [ "x${__data_dir}" = "x" ]; then
+  die "failed to locate home directory"
+fi
 
 __node_url=""
 __node_file=""
 __node_hash=""
 __node_dir=""
 
-case "${__arch}" in
-  "x64")
+case "${__plat}-${__arch}" in
+  "linux-x64")
     __node_url="https://nodejs.org/dist/v8.15.1/node-v8.15.1-linux-x64.tar.gz"
     __node_file="node-v8.15.1-linux-x64.tar.gz"
     __node_hash="16e203f2440cffe90522f1e1855d5d7e2e658e759057db070a3dafda445d6d1f"
     __node_dir="node-v8.15.1-linux-x64"
+    ;;
+  "darwin-x64")
+    __node_url="https://nodejs.org/dist/v8.15.1/node-v8.15.1-darwin-x64.tar.gz"
+    __node_file="node-v8.15.1-darwin-x64.tar.gz"
+    __node_hash="f3da0b4397150226c008a86c99d77dbb835dc62219d863654913a78332ab19a5"
+    __node_dir="node-v8.15.1-darwin-x64"
     ;;
 esac
 
@@ -93,7 +112,7 @@ if [ ! -f "${__node_bin}" ]; then
   fi
 fi
 
-__node_test_ver=`${__node_bin} --version`
+__node_test_ver=`"${__node_bin}" --version`
 if [ $? -ne 0 ]; then
   die "could not execute ${__node_bin}"
 fi
