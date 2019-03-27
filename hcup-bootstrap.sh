@@ -267,7 +267,8 @@ var hcup_bootstrap = (function (exports) {
 	        env.log('[platform:shell]', args.cmd, JSON.stringify(args.args));
 	        const proc = childProcess.spawn(args.cmd, args.args, {
 	          shell: true,
-	          stdio: 'inherit'
+	          stdio: 'inherit',
+	          cwd: path.resolve(args.cwd || '.')
 	        });
 	        proc.on('close', code => {
 	          if (code === 0) {
@@ -287,7 +288,8 @@ var hcup_bootstrap = (function (exports) {
 	      try {
 	        env.log('[platform:shellCapture]', args.cmd, JSON.stringify(args.args));
 	        const proc = childProcess.spawn(args.cmd, args.args, {
-	          shell: true
+	          shell: true,
+	          cwd: path.resolve(args.cwd || '.')
 	        });
 	        let stdout = Buffer.alloc(0);
 	        let stderr = Buffer.alloc(0);
@@ -298,7 +300,11 @@ var hcup_bootstrap = (function (exports) {
 	          stderr = Buffer.concat([stderr, chunk]);
 	        });
 	        proc.on('close', code => {
-	          resolve({ code, stdout, stderr });
+	          if (code === 0) {
+	            resolve(stdout.toString().trim());
+	          } else {
+	            reject(new Error('code ' + code + ': ' + stderr.toString().trim()));
+	          }
 	        });
 	      } catch (e) {
 	        reject(e);
@@ -333,10 +339,7 @@ var hcup_bootstrap = (function (exports) {
 	      cmd: 'git',
 	      args: ['--version']
 	    });
-	    if (ver.code !== 0) {
-	      throw new Error('cmd exited non-zero: ' + ver.code + ' ' + ver.stderr.toString())
-	    }
-	    env.log('[git] got: ' + ver.stdout.toString().trim());
+	    env.log('[git] got: ' + ver);
 	  }
 
 	  env.register('git', '$init', [], async () => {
@@ -345,7 +348,9 @@ var hcup_bootstrap = (function (exports) {
 	      return
 	    } catch (e) { /* pass */ }
 
+	    env.log('[git] attempting to install "git", sudo may ask for your password');
 	    await env.exec('git', '$install');
+	    await checkGitVersion();
 	  });
 
 	  env.register('git', '$install', [], async () => {
@@ -353,12 +358,10 @@ var hcup_bootstrap = (function (exports) {
 	  });
 
 	  env.register('git', '$install', ['linux', 'debian'], async () => {
-	    env.log('[git] attempting to install "git", sudo may ask for your password');
 	    await env.exec('platform', 'shell', {
 	      cmd: 'sudo',
 	      args: ['apt-get', 'install', 'git']
 	    });
-	    await checkGitVersion();
 	  });
 
 	  env.register('git', '$install', ['linux', 'nix'], async () => {
@@ -366,17 +369,83 @@ var hcup_bootstrap = (function (exports) {
 	      cmd: 'nix-env',
 	      args: ['-i', 'git']
 	    });
-	    await checkGitVersion();
 	  });
 
-	  env.register('git', 'update', [], async () => {
-	    return { needRelaunch: false }
+	  env.register('git', 'ensureRepoUpdated', [], async args => {
+	    let needRelaunch = false;
+	    try {
+	      await env.exec('platform', 'shell', {
+	        cmd: 'git',
+	        args: [
+	          'clone',
+	          args.url,
+	          args.path
+	        ]
+	      });
+	      needRelaunch = true;
+	    } catch (e) { /* pass */ }
+
+	    const b4Hash = await env.exec('platform', 'shellCapture', {
+	      cmd: 'git',
+	      args: [
+	        'rev-parse',
+	        'HEAD'
+	      ],
+	      cwd: args.path
+	    });
+
+	    env.log('[git] before hash:', b4Hash);
+
+	    await env.exec('platform', 'shell', {
+	      cmd: 'git',
+	      args: [
+	        'reset',
+	        '--hard'
+	      ],
+	      cwd: args.path
+	    });
+
+	    await env.exec('platform', 'shell', {
+	      cmd: 'git',
+	      args: [
+	        'checkout',
+	        args.branch || 'master'
+	      ],
+	      cwd: args.path
+	    });
+
+	    await env.exec('platform', 'shell', {
+	      cmd: 'git',
+	      args: [
+	        'pull'
+	      ],
+	      cwd: args.path
+	    });
+
+	    const hash = await env.exec('platform', 'shellCapture', {
+	      cmd: 'git',
+	      args: [
+	        'rev-parse',
+	        'HEAD'
+	      ],
+	      cwd: args.path
+	    });
+
+	    env.log('[git] after hash:', hash);
+
+	    if (b4Hash !== hash) {
+	      needRelaunch = true;
+	    }
+
+	    return { needRelaunch, hash }
 	  });
 	};
 	});
 
 	var node = createCommonjsModule(function (module, exports) {
+	const os = require('os');
 	const path = require('path');
+	const fs = require('fs');
 
 	module.exports = exports = env => {
 	  const WANT_VERSION = 'v8.15.1';
@@ -427,21 +496,29 @@ var hcup_bootstrap = (function (exports) {
 	      needRelaunch = true;
 	    }
 
-	    const ver = await env.exec('platform', 'shellCapture', {
-	      cmd: SINGLETON.nodeBin,
-	      args: ['--version']
-	    });
+	    let ver = '';
 
-	    if (ver.code !== 0 || ver.stdout.toString().trim() !== WANT_VERSION) {
+	    try {
+	      ver = await env.exec('platform', 'shellCapture', {
+	        cmd: SINGLETON.nodeBin,
+	        args: ['--version']
+	      });
+	    } catch (e) { /* pass */ }
+
+	    env.log('[node] version:', ver);
+
+	    if (ver !== WANT_VERSION) {
 	      needRelaunch = true;
 	      await env.exec('node', '$install');
 
-	      const ver = await env.exec('platform', 'shellCapture', {
+	      ver = await env.exec('platform', 'shellCapture', {
 	        cmd: SINGLETON.nodeBin,
 	        args: ['--version']
 	      });
 
-	      if (ver.code !== 0 || ver.stdout.toString().trim() !== WANT_VERSION) {
+	      env.log('[node] version:', ver);
+
+	      if (ver !== WANT_VERSION) {
 	        throw new Error('node download did not produce correct version: ' + ver.stdout.toString())
 	      }
 	    }
@@ -469,21 +546,61 @@ var hcup_bootstrap = (function (exports) {
 	    throw new Error('no such thing as a default launcher')
 	  });
 
-	  env.register('node', 'writeLauncher', ['linux'], async () => {
-	    const sh = await env.exec('platform', 'shellCapture', {
+	  env.register('node', 'writeLauncher', ['linux'], async args => {
+	    env.log('[node] check launcher version ===', args.gitHash);
+
+	    const binDir = path.resolve(env.dataDir, 'bin');
+	    const launcher = path.resolve(binDir, 'hcup');
+
+	    try {
+	      const contents = fs.readFileSync(launcher, 'utf8');
+	      const m = contents.match(/#gitHash:([^#]+)/m);
+	      if (m && m.length >= 2 && m[1] === args.gitHash) {
+	        env.log('[node] launcher is correct version');
+	        return
+	      }
+	    } catch (e) { /* pass */ }
+
+	    await env.exec('platform', 'mkdirp', { path: binDir });
+
+	    const sh_path = await env.exec('platform', 'shellCapture', {
 	      cmd: 'which',
 	      args: ['sh']
 	    });
-	    if (sh.code !== 0) {
-	      throw new Error('could not determine shell path')
-	    }
-	    const sh_path = sh.stdout.toString().trim();
 	    env.log('[node:writeLauncher] found shell path: "' + sh_path + '"');
 
-	    env.log('[node:writeLauncher] ------------------------------------------');
-	    env.log('[node:writeLauncher] execute the following, or restart terminal');
-	    env.log(`[node:writeLauncher] export PATH=${env.dataDir}/bin`);
-	    env.log('[node:writeLauncher] ------------------------------------------');
+	    fs.writeFileSync(launcher, `#! ${sh_path}
+#gitHash:${args.gitHash}#
+__module="\${1-x}"
+if [ "\${__module}" = "x" ]; then
+  exec "${SINGLETON.nodeBin}" "${env.dataDir}/repo/lib/env.js"
+fi
+shift
+exec "${SINGLETON.nodeBin}" "${env.dataDir}/repo/lib/modules/\${__module}" "$@"
+`, {
+	      mode: 0o755
+	    });
+
+	    env.log('[node:writeLauncher] launcher created:', launcher);
+
+	    const profile = path.resolve(os.homedir(), '.profile');
+	    const addPath = `export "PATH=${binDir}:$PATH"`;
+	    try {
+	      const contents = fs.readFileSync(profile);
+	      if (contents.includes(binDir)) {
+	        env.log(`[node] path addition found in ${profile}`);
+	        return
+	      }
+	    } catch (e) { /* pass */ }
+
+	    fs.writeFileSync(profile, '\n' + addPath + '\n', {
+	      flag: 'a'
+	    });
+
+	    env.log('[node:writeLauncher] ---------------------------------------------');
+	    env.log('[node:writeLauncher] execute the following, or log out and back in');
+	    env.log(`[node:writeLauncher] ${addPath}`);
+	    env.log('[node:writeLauncher] ---------------------------------------------');
 	  });
 
 	  env.register('node', 'relaunch', [], async () => {
@@ -606,8 +723,10 @@ var hcup_bootstrap = (function (exports) {
 	  env.log('[env:prep] git');
 	  const gitDir = path.resolve(env.dataDir, 'repo');
 
-	  const gitRes = await env.exec('git', 'update', {
-	    path: gitDir
+	  const gitRes = await env.exec('git', 'ensureRepoUpdated', {
+	    url: '/home/neonphog/projects/hcup',
+	    path: gitDir,
+	    branch: 'master'
 	  });
 
 	  if (gitRes && gitRes.needRelaunch) {
@@ -624,7 +743,7 @@ var hcup_bootstrap = (function (exports) {
 	    process.exit(await env.exec('node', 'relaunch'));
 	  }
 
-	  await env.exec('node', 'writeLauncher');
+	  await env.exec('node', 'writeLauncher', { gitHash: gitRes.hash });
 
 	  env.log('[env:prep] ready');
 	  await env.exec(env.lastModule, '$init');
