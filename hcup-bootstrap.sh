@@ -175,7 +175,34 @@ var hcup_bootstrap = (function (exports) {
 	    if (/ID=ubuntu/m.test(res)) {
 	      env.distro = 'ubuntu';
 	      env.selector.push('ubuntu');
-	      const m = res.match(/VERSION_ID="([^"]+)"/m);
+	      const m = res.match(/VERSION_ID="?([^"\s]+)"?/m);
+	      if (m && m.length >= 2) {
+	        env.selector.push(m[1]);
+	        env.distro_version = m[1];
+	      }
+	    }
+	  } catch (e) {
+	    console.error(e);
+	  }
+	};
+	});
+
+	var fedora = createCommonjsModule(function (module, exports) {
+	// check to see if we are debian
+
+	const fs = require('fs');
+
+	module.exports = exports = env => {
+	  try {
+	    if (env.selector.length > 1) {
+	      return
+	    }
+
+	    const res = fs.readFileSync('/etc/os-release', 'utf8');
+	    if (/ID=fedora/m.test(res)) {
+	      env.distro = 'fedora';
+	      env.selector.push('fedora');
+	      const m = res.match(/VERSION_ID="?([^"\s]+)"?/m);
 	      if (m && m.length >= 2) {
 	        env.selector.push(m[1]);
 	        env.distro_version = m[1];
@@ -677,6 +704,7 @@ exec "${SINGLETON.nodeBin}" "${env.dataDir}/repo/lib/modules/\${__module}" "$@"
 	nix(exports);
 	debian(exports);
 	ubuntu(exports);
+	fedora(exports);
 
 	exports.log = (...args) => {
 	  console.log('[hcup]', ...args);
