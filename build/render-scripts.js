@@ -3,7 +3,8 @@ const fs = require('fs')
 const path = require('path')
 
 const TPL = [
-  'hcup-bootstrap.sh'
+  'hcup-bootstrap.sh',
+  'hcup-bootstrap.ps1'
 ]
 
 const data = {
