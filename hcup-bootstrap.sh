@@ -233,6 +233,136 @@ var hcup_bootstrap = (function (exports) {
 	};
 	});
 
+	var env = createCommonjsModule(function (module, exports) {
+	const os = require('os');
+	const path = require('path');
+
+	module.exports = exports = {
+	  platform: os.platform(),
+	  arch: os.arch(),
+	  dataDir: null,
+	  selector: [os.platform()],
+	};
+
+	if (exports.platform === 'linux') {
+	  if (process.env.XDG_DATA_HOME) {
+	    exports.dataDir = path.resolve(process.env.XDG_DATA_HOME, 'hcup');
+	  } else if (process.env.HOME) {
+	    exports.dataDir = path.resolve(process.env.HOME, '.local', 'share', 'hcup');
+	  }
+	} else if (exports.platform === 'darwin') {
+	  if (process.env.HOME) {
+	    exports.dataDir = path.resolve(process.env.HOME, 'Library', 'Application Support', 'host.holo.hcup');
+	  }
+	}
+
+	if (!exports.dataDir) {
+	  throw new Error('failed to locate home directory')
+	}
+
+	nix(exports);
+	debian(exports);
+	ubuntu(exports);
+	fedora(exports);
+
+	exports.log = (...args) => {
+	  console.log('[hcup]', ...args);
+	};
+
+	exports.error = (...args) => {
+	  console.error('[hcup]', ...args);
+	};
+
+	exports.log(JSON.stringify(exports, null, 2));
+
+	exports.modules = {};
+	exports.targets = [];
+
+	exports.exec = async (moduleName, fnName, ...args) => {
+	  if (!(moduleName in exports.modules)) {
+	    throw new Error('module "' + moduleName + '" not found')
+	  }
+	  const modRef = exports.modules[moduleName];
+
+	  if (fnName === '$init' && modRef.$initDone) {
+	    return
+	  }
+
+	  if (fnName === '$install' && modRef.$installDone) {
+	    return
+	  }
+
+	  if (fnName !== '$init' && fnName !== '$install') {
+	    await exports.exec(moduleName, '$init');
+	  }
+
+	  if (!(fnName in modRef)) {
+	    throw new Error(
+	      'fn "' + fnName + '" not found in module "' + moduleName + '"')
+	  }
+
+	  let ref = modRef[fnName];
+	  let maybeFn = ref._;
+	  for (let s of exports.selector) {
+	    if (!(s in ref)) {
+	      break
+	    }
+	    ref = ref[s];
+	    if (ref._) {
+	      maybeFn = ref._;
+	    }
+	  }
+
+	  if (!maybeFn) {
+	    throw new Error('could not find selector fn')
+	  }
+
+	  const out = await maybeFn(...args);
+
+	  if (fnName === '$init') {
+	    modRef.$initDone = true;
+	  } else if (fnName === '$install') {
+	    modRef.$installDone = true;
+	  }
+
+	  return out
+	};
+
+	exports.register = (moduleName, fnName, selector, fn) => {
+	  if (!(moduleName in exports.modules)) {
+	    exports.modules[moduleName] = {};
+	  }
+	  let ref = exports.modules[moduleName];
+	  if (!(fnName in ref)) {
+	    ref[fnName] = {};
+	  }
+	  ref = ref[fnName];
+	  for (let s of selector) {
+	    if (!(s in ref)) {
+	      ref[s] = {};
+	    }
+	    ref = ref[s];
+	  }
+	  ref._ = fn;
+
+	  return exports
+	};
+
+	exports.registerTarget = (moduleName, ...args) => {
+	  exports.register(moduleName, ...args);
+	  exports.targets.push(moduleName);
+	  exports.targets = exports.targets.sort();
+	};
+	});
+	var env_1 = env.dataDir;
+	var env_2 = env.log;
+	var env_3 = env.error;
+	var env_4 = env.modules;
+	var env_5 = env.targets;
+	var env_6 = env.exec;
+	var env_7 = env.register;
+	var env_8 = env.registerTarget;
+
 	var platform = createCommonjsModule(function (module, exports) {
 	const crypto = require('crypto');
 	const { URL } = require('url');
@@ -710,12 +840,7 @@ var hcup_bootstrap = (function (exports) {
 
 	    fs.writeFileSync(launcher, `#! ${sh_path}
 #gitHash:${args.gitHash}#
-__module="\${1-x}"
-if [ "\${__module}" = "x" ]; then
-  exec "${SINGLETON.nodeBin}" "${env.dataDir}/repo/lib/env.js"
-fi
-shift
-exec "${SINGLETON.nodeBin}" "${env.dataDir}/repo/lib/modules/\${__module}" "$@"
+exec "${SINGLETON.nodeBin}" "${env.dataDir}/repo/lib/index_entry.js" "$@"
 `, {
 	      mode: 0o755
 	    });
@@ -751,186 +876,55 @@ exec "${SINGLETON.nodeBin}" "${env.dataDir}/repo/lib/modules/\${__module}" "$@"
 	};
 	});
 
-	var env = createCommonjsModule(function (module, exports) {
-	const os = require('os');
+	var bootstrap = createCommonjsModule(function (module, exports) {
 	const path = require('path');
 
-	module.exports = exports = {
-	  platform: os.platform(),
-	  arch: os.arch(),
-	  dataDir: null,
-	  selector: [os.platform()],
+	// load coreModules
+	platform(env);
+	git(env);
+	node(env);
+
+	module.exports = exports = async () => {
+	  env.log('[env:prep] git');
+	  const gitDir = path.resolve(env.dataDir, 'repo');
+
+	  const gitRes = await env.exec('git', 'ensureRepoUpdated', {
+	    url: 'https://github.com/neonphog/hcup.git',
+	    path: gitDir,
+	    branch: 'master'
+	  });
+
+	  if (gitRes && gitRes.needRelaunch) {
+	    // we don't know that we have the correct node binary yet
+	    // relaunch so we can reload and check next time
+	    process.exit(await env.exec('platform', 'relaunch', process.argv[0]));
+	  }
+
+	  env.log('[env:prep] node');
+	  const nodeRes = await env.exec('node', '$init');
+
+	  if (nodeRes && nodeRes.needRelaunch) {
+	    // now we may have a different node binary, relaunch with that
+	    process.exit(await env.exec('node', 'relaunch'));
+	  }
+
+	  await env.exec('node', 'writeLauncher', { gitHash: gitRes.hash });
+
+	  env.log('[env:prep] ready');
+	  //await env.exec(env.lastModule, '$init')
 	};
-
-	if (exports.platform === 'linux') {
-	  if (process.env.XDG_DATA_HOME) {
-	    exports.dataDir = path.resolve(process.env.XDG_DATA_HOME, 'hcup');
-	  } else if (process.env.HOME) {
-	    exports.dataDir = path.resolve(process.env.HOME, '.local', 'share', 'hcup');
-	  }
-	} else if (exports.platform === 'darwin') {
-	  if (process.env.HOME) {
-	    exports.dataDir = path.resolve(process.env.HOME, 'Library', 'Application Support', 'host.holo.hcup');
-	  }
-	}
-
-	if (!exports.dataDir) {
-	  throw new Error('failed to locate home directory')
-	}
-
-	nix(exports);
-	debian(exports);
-	ubuntu(exports);
-	fedora(exports);
-
-	exports.log = (...args) => {
-	  console.log('[hcup]', ...args);
-	};
-
-	exports.error = (...args) => {
-	  console.error('[hcup]', ...args);
-	};
-
-	exports.log(JSON.stringify(exports, null, 2));
-
-	exports.modules = {};
-	exports.lastModule = null;
-
-	exports.exec = async (moduleName, fnName, ...args) => {
-	  if (!(moduleName in exports.modules)) {
-	    throw new Error('module "' + moduleName + '" not found')
-	  }
-	  const modRef = exports.modules[moduleName];
-
-	  if (fnName === '$init' && modRef.$initDone) {
-	    return
-	  }
-
-	  if (fnName === '$install' && modRef.$installDone) {
-	    return
-	  }
-
-	  if (fnName !== '$init' && fnName !== '$install') {
-	    await exports.exec(moduleName, '$init');
-	  }
-
-	  if (!(fnName in modRef)) {
-	    throw new Error(
-	      'fn "' + fnName + '" not found in module "' + moduleName + '"')
-	  }
-
-	  let ref = modRef[fnName];
-	  let maybeFn = ref._;
-	  for (let s of exports.selector) {
-	    if (!(s in ref)) {
-	      break
-	    }
-	    ref = ref[s];
-	    if (ref._) {
-	      maybeFn = ref._;
-	    }
-	  }
-
-	  if (!maybeFn) {
-	    throw new Error('could not find selector fn')
-	  }
-
-	  const out = await maybeFn(...args);
-
-	  if (fnName === '$init') {
-	    modRef.$initDone = true;
-	  } else if (fnName === '$install') {
-	    modRef.$installDone = true;
-	  }
-
-	  return out
-	};
-
-	exports.register = (moduleName, fnName, selector, fn) => {
-	  exports.lastModule = moduleName;
-
-	  if (!(moduleName in exports.modules)) {
-	    exports.modules[moduleName] = {};
-	  }
-	  let ref = exports.modules[moduleName];
-	  if (!(fnName in ref)) {
-	    ref[fnName] = {};
-	  }
-	  ref = ref[fnName];
-	  for (let s of selector) {
-	    if (!(s in ref)) {
-	      ref[s] = {};
-	    }
-	    ref = ref[s];
-	  }
-	  ref._ = fn;
-
-	  return exports
-	};
-
-	let didPrep = false;
-	process.on('beforeExit', async () => {
-	  try {
-	    if (didPrep) {
-	      return
-	    }
-	    didPrep = true;
-
-	    const env = exports;
-
-	    env.log('[env:prep] git');
-	    const gitDir = path.resolve(env.dataDir, 'repo');
-
-	    const gitRes = await env.exec('git', 'ensureRepoUpdated', {
-	      url: 'https://github.com/neonphog/hcup.git',
-	      path: gitDir,
-	      branch: 'master'
-	    });
-
-	    if (gitRes && gitRes.needRelaunch) {
-	      // we don't know that we have the correct node binary yet
-	      // relaunch so we can reload and check next time
-	      process.exit(await env.exec('platform', 'relaunch', process.argv[0]));
-	    }
-
-	    env.log('[env:prep] node');
-	    const nodeRes = await env.exec('node', '$init');
-
-	    if (nodeRes && nodeRes.needRelaunch) {
-	      // now we may have a different node binary, relaunch with that
-	      process.exit(await env.exec('node', 'relaunch'));
-	    }
-
-	    await env.exec('node', 'writeLauncher', { gitHash: gitRes.hash });
-
-	    env.log('[env:prep] ready');
-	    await env.exec(env.lastModule, '$init');
-	  } catch (e) {
-	    exports.error(e);
-	    process.exit(1);
-	  }
 	});
 
-	platform(exports);
-	git(exports);
-	node(exports);
+	bootstrap().then(() => {}, err => {
+	  console.error(err);
+	  process.exit(1);
 	});
-	var env_1 = env.dataDir;
-	var env_2 = env.log;
-	var env_3 = env.error;
-	var env_4 = env.modules;
-	var env_5 = env.lastModule;
-	var env_6 = env.exec;
-	var env_7 = env.register;
 
-	exports.dataDir = env_1;
-	exports.default = env;
-	exports.error = env_3;
-	exports.exec = env_6;
-	exports.lastModule = env_5;
-	exports.log = env_2;
-	exports.modules = env_4;
-	exports.register = env_7;
+	var bootstrap_entry = {
+
+	};
+
+	exports.default = bootstrap_entry;
 
 	return exports;
 

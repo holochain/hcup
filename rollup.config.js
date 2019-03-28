@@ -1,7 +1,7 @@
 import commonjs from 'rollup-plugin-commonjs'
 
 export default {
-  input: 'lib/env.js',
+  input: 'lib/bootstrap_entry.js',
   output: {
     file: 'hcup-bootstrap.js',
     format: 'iife',
