@@ -265,15 +265,36 @@ var hcup_bootstrap = (function (exports) {
 	ubuntu(exports);
 	fedora(exports);
 
-	exports.log = (...args) => {
-	  console.log('[hcup]', ...args);
+	let isVerbose = false;
+	exports.setVerbose = () => { isVerbose = true; };
+
+	exports.logger = (tag) => {
+	  const write = (lvl, esc, ...args) => {
+	    if (process.stderr.isTTY) {
+	      process.stderr.write(esc);
+	    }
+	    console.error(lvl, '[hcup]', '[' + tag + ']', ...args);
+	    if (process.stderr.isTTY) {
+	      process.stderr.write('\x1b[0m');
+	    }
+	  };
+	  return {
+	    v: (...args) => {
+	      if (!isVerbose) {
+	        return
+	      }
+	      write('@v@', '\x1b[34m', ...args);
+	    },
+	    i: (...args) => {
+	      write('-i-', '\x1b[32m', ...args);
+	    },
+	    e: (...args) => {
+	      write('#e#', '\x1b[31m', ...args);
+	    }
+	  }
 	};
 
-	exports.error = (...args) => {
-	  console.error('[hcup]', ...args);
-	};
-
-	exports.log(JSON.stringify(exports, null, 2));
+	const log = exports.logger('env');
 
 	exports.modules = {};
 	exports.targets = [];
@@ -355,8 +376,8 @@ var hcup_bootstrap = (function (exports) {
 	};
 	});
 	var env_1 = env.dataDir;
-	var env_2 = env.log;
-	var env_3 = env.error;
+	var env_2 = env.setVerbose;
+	var env_3 = env.logger;
 	var env_4 = env.modules;
 	var env_5 = env.targets;
 	var env_6 = env.exec;
@@ -374,6 +395,8 @@ var hcup_bootstrap = (function (exports) {
 	const $p = util.promisify;
 
 	module.exports = exports = env => {
+	  const log = env.logger('platform');
+
 	  async function mkdirp (p, exit) {
 	    p = path.resolve(p);
 	    try {
@@ -486,7 +509,7 @@ var hcup_bootstrap = (function (exports) {
 	  env.register('platform', 'shell', [], async args => {
 	    return new Promise((resolve, reject) => {
 	      try {
-	        env.log('[platform:shell]', args.cmd, JSON.stringify(args.args));
+	        log.v('[shell]', args.cmd, JSON.stringify(args.args));
 	        const proc = childProcess.spawn(
 	          '"' + args.cmd + '"',
 	          args.args.map(a => '"' + a + '"'),
@@ -512,7 +535,7 @@ var hcup_bootstrap = (function (exports) {
 	  env.register('platform', 'shellCapture', [], async args => {
 	    return new Promise((resolve, reject) => {
 	      try {
-	        env.log('[platform:shellCapture]', args.cmd, JSON.stringify(args.args));
+	        log.v('[shellCapture]', args.cmd, JSON.stringify(args.args));
 	        const proc = childProcess.spawn(
 	          '"' + args.cmd + '"',
 	          args.args.map(a => '"' + a + '"'),
@@ -545,7 +568,7 @@ var hcup_bootstrap = (function (exports) {
 	  env.register('platform', 'relaunch', [], async nodeBin => {
 	    return new Promise((resolve, reject) => {
 	      try {
-	        env.log('[platform:relaunch] with "' + nodeBin + '"');
+	        log.i('[relaunch] with "' + nodeBin + '"');
 	        const proc = childProcess.spawn(
 	          '"' + nodeBin + '"',
 	          process.argv.slice(1).map(a => '"' + a + '"'),
@@ -598,22 +621,24 @@ var hcup_bootstrap = (function (exports) {
 
 	var git = createCommonjsModule(function (module, exports) {
 	module.exports = exports = env => {
+	  const log = env.logger('git');
+
 	  async function checkGitVersion () {
-	    env.log('[git] checking git version');
+	    log.v('checking git version');
 	    const ver = await env.exec('platform', 'shellCapture', {
 	      cmd: 'git',
 	      args: ['--version']
 	    });
-	    env.log('[git] got: ' + ver);
+	    log.v('got: ' + ver);
 	  }
 
 	  env.register('git', '$init', [], async () => {
 	    try {
 	      await checkGitVersion();
 	      return
-	    } catch (e) { /* pass */ }
+	    } catch (e) { log.e(e); }
 
-	    env.log('[git] attempting to install "git", sudo may ask for your password');
+	    log.i('attempting to install "git", sudo may ask for your password');
 	    await env.exec('git', '$install');
 	    await checkGitVersion();
 	  });
@@ -655,7 +680,7 @@ var hcup_bootstrap = (function (exports) {
 	      cwd: args.path
 	    });
 
-	    env.log('[git] before hash:', b4Hash);
+	    log.v('before hash:', b4Hash);
 
 	    await env.exec('platform', 'shell', {
 	      cmd: 'git',
@@ -692,7 +717,7 @@ var hcup_bootstrap = (function (exports) {
 	      cwd: args.path
 	    });
 
-	    env.log('[git] after hash:', hash);
+	    log.v('after hash:', hash);
 
 	    if (b4Hash !== hash) {
 	      needRelaunch = true;
@@ -709,6 +734,8 @@ var hcup_bootstrap = (function (exports) {
 	const fs = require('fs');
 
 	module.exports = exports = env => {
+	  const log = env.logger('node');
+
 	  const WANT_VERSION = 'v8.15.1';
 
 	  const NODE_BIN = {
@@ -755,7 +782,7 @@ var hcup_bootstrap = (function (exports) {
 	  env.register('node', '$init', [], async () => {
 	    let needRelaunch = false;
 
-	    env.log('[node] checking node version === ' + WANT_VERSION);
+	    log.v('checking node version === ' + WANT_VERSION);
 
 	    SINGLETON.nodeBin = path.resolve(getNodeBin().nodeDir, 'bin', 'node');
 
@@ -774,7 +801,7 @@ var hcup_bootstrap = (function (exports) {
 	      });
 	    } catch (e) { /* pass */ }
 
-	    env.log('[node] version:', ver);
+	    log.v('[node] version:', ver);
 
 	    if (ver !== WANT_VERSION) {
 	      needRelaunch = true;
@@ -785,7 +812,7 @@ var hcup_bootstrap = (function (exports) {
 	        args: ['--version']
 	      });
 
-	      env.log('[node] version:', ver);
+	      log.v('[node] version:', ver);
 
 	      if (ver !== WANT_VERSION) {
 	        throw new Error('node download did not produce correct version: ' + ver.stdout.toString())
@@ -816,7 +843,7 @@ var hcup_bootstrap = (function (exports) {
 	  });
 
 	  async function writeBourneLauncher (args) {
-	    env.log('[node] check launcher version ===', args.gitHash);
+	    log.v('[node] check launcher version ===', args.gitHash);
 
 	    const binDir = path.resolve(env.dataDir, 'bin');
 	    const launcher = path.resolve(binDir, 'hcup');
@@ -825,7 +852,7 @@ var hcup_bootstrap = (function (exports) {
 	      const contents = fs.readFileSync(launcher, 'utf8');
 	      const m = contents.match(/#gitHash:([^#]+)/m);
 	      if (m && m.length >= 2 && m[1] === args.gitHash) {
-	        env.log('[node] launcher is correct version');
+	        log.v('[node] launcher is correct version');
 	        return
 	      }
 	    } catch (e) { /* pass */ }
@@ -836,7 +863,7 @@ var hcup_bootstrap = (function (exports) {
 	      cmd: 'which',
 	      args: ['sh']
 	    });
-	    env.log('[node:writeLauncher] found shell path: "' + sh_path + '"');
+	    log.v('[node:writeLauncher] found shell path: "' + sh_path + '"');
 
 	    fs.writeFileSync(launcher, `#! ${sh_path}
 #gitHash:${args.gitHash}#
@@ -845,14 +872,14 @@ exec "${SINGLETON.nodeBin}" "${env.dataDir}/repo/lib/index_entry.js" "$@"
 	      mode: 0o755
 	    });
 
-	    env.log('[node:writeLauncher] launcher created:', launcher);
+	    log.i('[node:writeLauncher] launcher created:', launcher);
 
 	    const profile = path.resolve(os.homedir(), '.profile');
 	    const addPath = `export "PATH=${binDir}:$PATH"`;
 	    try {
 	      const contents = fs.readFileSync(profile);
 	      if (contents.includes(binDir)) {
-	        env.log(`[node] path addition found in ${profile}`);
+	        log.v(`[node] path addition found in ${profile}`);
 	        return
 	      }
 	    } catch (e) { /* pass */ }
@@ -861,10 +888,10 @@ exec "${SINGLETON.nodeBin}" "${env.dataDir}/repo/lib/index_entry.js" "$@"
 	      flag: 'a'
 	    });
 
-	    env.log('[node:writeLauncher] ---------------------------------------------');
-	    env.log('[node:writeLauncher] execute the following, or log out and back in');
-	    env.log(`[node:writeLauncher] ${addPath}`);
-	    env.log('[node:writeLauncher] ---------------------------------------------');
+	    log.i('[node:writeLauncher] ---------------------------------------------');
+	    log.i('[node:writeLauncher] execute the following, or log out and back in');
+	    log.i(`[node:writeLauncher] ${addPath}`);
+	    log.i('[node:writeLauncher] ---------------------------------------------');
 	  }
 
 	  env.register('node', 'writeLauncher', ['linux'], writeBourneLauncher);
@@ -877,6 +904,8 @@ exec "${SINGLETON.nodeBin}" "${env.dataDir}/repo/lib/index_entry.js" "$@"
 	});
 
 	var bootstrap = createCommonjsModule(function (module, exports) {
+	const log = env.logger('bootstrap');
+
 	const path = require('path');
 
 	// load coreModules
@@ -885,36 +914,56 @@ exec "${SINGLETON.nodeBin}" "${env.dataDir}/repo/lib/index_entry.js" "$@"
 	node(env);
 
 	module.exports = exports = async () => {
-	  env.log('[env:prep] git');
-	  const gitDir = path.resolve(env.dataDir, 'repo');
+	  try {
+	    log.i('checking bootstrap dependencies');
 
-	  const gitRes = await env.exec('git', 'ensureRepoUpdated', {
-	    url: 'https://github.com/neonphog/hcup.git',
-	    path: gitDir,
-	    branch: 'master'
-	  });
+	    log.v(JSON.stringify({
+	      platform: env.platform,
+	      arch: env.arch,
+	      dataDir: env.dataDir,
+	      selector: env.selector,
+	      distro: env.distro,
+	      distro_version: env.distro_version,
+	      modules: Object.keys(env.modules),
+	      targets: env.targets
+	    }, null, 2));
+	    log.i('platform', env.platform);
+	    log.i('arch', env.arch);
 
-	  if (gitRes && gitRes.needRelaunch) {
-	    // we don't know that we have the correct node binary yet
-	    // relaunch so we can reload and check next time
-	    process.exit(await env.exec('platform', 'relaunch', process.argv[0]));
+	    log.v('git');
+	    const gitDir = path.resolve(env.dataDir, 'repo');
+
+	    const gitRes = await env.exec('git', 'ensureRepoUpdated', {
+	      url: 'https://github.com/neonphog/hcup.git',
+	      path: gitDir,
+	      branch: 'master'
+	    });
+
+	    if (gitRes && gitRes.needRelaunch) {
+	      // we don't know that we have the correct node binary yet
+	      // relaunch so we can reload and check next time
+	      process.exit(await env.exec('platform', 'relaunch', process.argv[0]));
+	    }
+
+	    log.v('node');
+	    const nodeRes = await env.exec('node', '$init');
+
+	    if (nodeRes && nodeRes.needRelaunch) {
+	      // now we may have a different node binary, relaunch with that
+	      process.exit(await env.exec('node', 'relaunch'));
+	    }
+
+	    await env.exec('node', 'writeLauncher', { gitHash: gitRes.hash });
+
+	    log.i('ready');
+	  } catch (e) {
+	    log.e(e);
+	    process.exit(1);
 	  }
-
-	  env.log('[env:prep] node');
-	  const nodeRes = await env.exec('node', '$init');
-
-	  if (nodeRes && nodeRes.needRelaunch) {
-	    // now we may have a different node binary, relaunch with that
-	    process.exit(await env.exec('node', 'relaunch'));
-	  }
-
-	  await env.exec('node', 'writeLauncher', { gitHash: gitRes.hash });
-
-	  env.log('[env:prep] ready');
-	  //await env.exec(env.lastModule, '$init')
 	};
 	});
 
+	env.setVerbose();
 	bootstrap().then(() => {}, err => {
 	  console.error(err);
 	  process.exit(1);
