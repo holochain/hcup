@@ -39,7 +39,7 @@ try {
   # installed (.NET 4.5 is an in-place upgrade).
   [System.Net.ServicePointManager]::SecurityProtocol = 3072 -bor 768 -bor 192 -bor 48
 } catch {
-  Write-Output 'Unable to set PowerShell to use TLS 1.2 and TLS 1.1 due to old .NET Framework installed. If you see underlying connection closed or trust errors, you may need to do one or more of the following: (1) upgrade to .NET Framework 4.5+ and PowerShell v3, (2) specify internal Chocolatey package location (set $env:chocolateyDownloadUrl prior to install or host the package internally), (3) use the Download + PowerShell method of install. See https://chocolatey.org/install for all install options.'
+  Write-Output 'Unable to set PowerShell to use TLS 1.2 and TLS 1.1 due to old .NET Framework installed. If you see underlying connection closed or trust errors, you may need to upgrade to .NET Framework 4.5+ and PowerShell v5'
 }
 
 function Get-Downloader {
@@ -54,15 +54,15 @@ param (
     $downloader.Credentials = $defaultCreds
   }
 
-  $ignoreProxy = $env:chocolateyIgnoreProxy
+  $ignoreProxy = $env:hcupIgnoreProxy
   if ($ignoreProxy -ne $null -and $ignoreProxy -eq 'true') {
     Write-Debug "Explicitly bypassing proxy due to user environment variable"
     $downloader.Proxy = [System.Net.GlobalProxySelection]::GetEmptyWebProxy()
   } else {
     # check if a proxy is required
-    $explicitProxy = $env:chocolateyProxyLocation
-    $explicitProxyUser = $env:chocolateyProxyUser
-    $explicitProxyPassword = $env:chocolateyProxyPassword
+    $explicitProxy = $env:hcupProxyLocation
+    $explicitProxyUser = $env:hcupProxyUser
+    $explicitProxyPassword = $env:hcupProxyPassword
     if ($explicitProxy -ne $null -and $explicitProxy -ne '') {
       # explicit proxy
       $proxy = New-Object System.Net.WebProxy($explicitProxy, $true)
@@ -108,7 +108,6 @@ param (
   [string]$url,
   [string]$file
  )
-  #Write-Output "Downloading $url to $file"
   $downloader = Get-Downloader $url
 
   $downloader.DownloadFile($url, $file)
@@ -130,14 +129,14 @@ $nodeUrl = "https://nodejs.org/dist/v8.15.1/node-v8.15.1-win-x64.zip"
 $nodeFile = Join-Path "$dataDir" "node-v8.15.1-win-x64.zip"
 
 Write-Output "Download $nodeUrl to $nodeFile"
-#Download-File $nodeUrl $nodeFile
+Download-File $nodeUrl $nodeFile
 
 if ($PSVersionTable.PSVersion.Major -lt 5) {
   throw "CANNOT EXTRACT psversion < 5"
 }
 
 Write-Output "Extract nodejs binary"
-#Expand-Archive -Path "$nodeFile" -DestinationPath "$dataDir" -Force
+Expand-Archive -Path "$nodeFile" -DestinationPath "$dataDir" -Force
 
 $tmpBin = Join-Path "$dataDir" "node-v8.15.1-win-x64"
 $tmpBin = Join-Path "$tmpBin" "node.exe"
@@ -907,7 +906,7 @@ var hcup_bootstrap = (function (exports) {
 	      const contents = fs.readFileSync(launcher, 'utf8');
 	      const m = contents.match(/#gitHash:([^#]+)/m);
 	      if (m && m.length >= 2 && m[1] === args.gitHash) {
-	        log.v('[node] launcher is correct version');
+	        log.v('launcher is correct version');
 	        return
 	      }
 	    } catch (e) { /* pass */ }
@@ -918,7 +917,7 @@ var hcup_bootstrap = (function (exports) {
 	      cmd: 'which',
 	      args: ['sh']
 	    })).stdout;
-	    log.v('[node:writeLauncher] found shell path: "' + shPath + '"');
+	    log.v('found shell path: "' + shPath + '"');
 
 	    fs.writeFileSync(launcher, `#! ${shPath}
 #gitHash:${args.gitHash}#
@@ -927,9 +926,16 @@ exec "${SINGLETON.nodeBin}" "${env.dataDir}/repo/lib/index_entry.js" "$@"
 	      mode: 0o755
 	    });
 
-	    log.i('[node:writeLauncher] launcher created:', launcher);
+	    log.i('launcher created:', launcher);
 
-	    const profile = path.resolve(os.homedir(), '.profile');
+	    let profile = path.resolve(os.homedir(), '.profile');
+	    if (
+	      env.platform === 'darwin' &&
+	      fs.existsSync(path.resolve(os.homedir(), '.bash_profile'))
+	    ) {
+	      profile = path.resolve(os.homedir(), '.bash_profile');
+	    }
+
 	    const addPath = `export "PATH=${binDir}:$PATH"`;
 	    try {
 	      const contents = fs.readFileSync(profile);
@@ -943,17 +949,40 @@ exec "${SINGLETON.nodeBin}" "${env.dataDir}/repo/lib/index_entry.js" "$@"
 	      flag: 'a'
 	    });
 
-	    log.i('[node:writeLauncher] ---------------------------------------------');
-	    log.i('[node:writeLauncher] execute the following, or log out and back in');
-	    log.i(`[node:writeLauncher] ${addPath}`);
-	    log.i('[node:writeLauncher] ---------------------------------------------');
+	    log.i('| --------------------------------------------------');
+	    log.i('| execute the following, or log out and back in');
+	    log.i(`| ${addPath}`);
+	    log.i('| --------------------------------------------------');
+	  }
+
+	  async function writeWin32BatchLauncher (args) {
+	    const binDir = path.resolve(env.dataDir, 'bin');
+	    const launcher = path.resolve(binDir, 'hcup.cmd');
+
+	    try {
+	      const contents = fs.readFileSync(launcher, 'utf8');
+	      const m = contents.match(/REM gitHash:([^\s]+) REM/m);
+	      if (m && m.length >= 2 && m[1] === args.gitHash) {
+	        log.v('launcher is correct version');
+	        return
+	      }
+	    } catch (e) { /* pass */ }
+
+	    fs.writeFileSync(launcher, `@ECHO OFF
+REM gitHash:${args.gitHash} REM
+@"%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -NoProfile -InputFormat None -ExecutionPolicy Bypass -Command "${SINGLETON.nodeBin} ${env.dataDir}/repo/lib/index_entry.js %*"
+`, {
+	      mode: 0o755
+	    });
 	  }
 
 	  if (env.platform === 'linux' || env.platform === 'darwin') {
 	    env.register('node', 'writeLauncher', writeBourneLauncher);
+	  } else if (env.platform === 'win32') {
+	    env.register('node', 'writeLauncher', writeWin32BatchLauncher);
 	  } else {
 	    env.register('node', 'writeLauncher', async () => {
-	      throw new Error('no such thing as a default launcher')
+	      throw new Error('no launcher configured for your platform')
 	    });
 	  }
 
@@ -1096,4 +1125,3 @@ exec "${SINGLETON.nodeBin}" "${env.dataDir}/repo/lib/index_entry.js" "$@"
 '@
 
 Invoke-Expression "$nodeBin $bsFile"
-

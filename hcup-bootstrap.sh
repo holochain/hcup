@@ -866,7 +866,7 @@ var hcup_bootstrap = (function (exports) {
 	      const contents = fs.readFileSync(launcher, 'utf8');
 	      const m = contents.match(/#gitHash:([^#]+)/m);
 	      if (m && m.length >= 2 && m[1] === args.gitHash) {
-	        log.v('[node] launcher is correct version');
+	        log.v('launcher is correct version');
 	        return
 	      }
 	    } catch (e) { /* pass */ }
@@ -877,7 +877,7 @@ var hcup_bootstrap = (function (exports) {
 	      cmd: 'which',
 	      args: ['sh']
 	    })).stdout;
-	    log.v('[node:writeLauncher] found shell path: "' + shPath + '"');
+	    log.v('found shell path: "' + shPath + '"');
 
 	    fs.writeFileSync(launcher, `#! ${shPath}
 #gitHash:${args.gitHash}#
@@ -886,9 +886,16 @@ exec "${SINGLETON.nodeBin}" "${env.dataDir}/repo/lib/index_entry.js" "$@"
 	      mode: 0o755
 	    });
 
-	    log.i('[node:writeLauncher] launcher created:', launcher);
+	    log.i('launcher created:', launcher);
 
-	    const profile = path.resolve(os.homedir(), '.profile');
+	    let profile = path.resolve(os.homedir(), '.profile');
+	    if (
+	      env.platform === 'darwin' &&
+	      fs.existsSync(path.resolve(os.homedir(), '.bash_profile'))
+	    ) {
+	      profile = path.resolve(os.homedir(), '.bash_profile');
+	    }
+
 	    const addPath = `export "PATH=${binDir}:$PATH"`;
 	    try {
 	      const contents = fs.readFileSync(profile);
@@ -902,17 +909,40 @@ exec "${SINGLETON.nodeBin}" "${env.dataDir}/repo/lib/index_entry.js" "$@"
 	      flag: 'a'
 	    });
 
-	    log.i('[node:writeLauncher] ---------------------------------------------');
-	    log.i('[node:writeLauncher] execute the following, or log out and back in');
-	    log.i(`[node:writeLauncher] ${addPath}`);
-	    log.i('[node:writeLauncher] ---------------------------------------------');
+	    log.i('| --------------------------------------------------');
+	    log.i('| execute the following, or log out and back in');
+	    log.i(`| ${addPath}`);
+	    log.i('| --------------------------------------------------');
+	  }
+
+	  async function writeWin32BatchLauncher (args) {
+	    const binDir = path.resolve(env.dataDir, 'bin');
+	    const launcher = path.resolve(binDir, 'hcup.cmd');
+
+	    try {
+	      const contents = fs.readFileSync(launcher, 'utf8');
+	      const m = contents.match(/REM gitHash:([^\s]+) REM/m);
+	      if (m && m.length >= 2 && m[1] === args.gitHash) {
+	        log.v('launcher is correct version');
+	        return
+	      }
+	    } catch (e) { /* pass */ }
+
+	    fs.writeFileSync(launcher, `@ECHO OFF
+REM gitHash:${args.gitHash} REM
+@"%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -NoProfile -InputFormat None -ExecutionPolicy Bypass -Command "${SINGLETON.nodeBin} ${env.dataDir}/repo/lib/index_entry.js %*"
+`, {
+	      mode: 0o755
+	    });
 	  }
 
 	  if (env.platform === 'linux' || env.platform === 'darwin') {
 	    env.register('node', 'writeLauncher', writeBourneLauncher);
+	  } else if (env.platform === 'win32') {
+	    env.register('node', 'writeLauncher', writeWin32BatchLauncher);
 	  } else {
 	    env.register('node', 'writeLauncher', async () => {
-	      throw new Error('no such thing as a default launcher')
+	      throw new Error('no launcher configured for your platform')
 	    });
 	  }
 

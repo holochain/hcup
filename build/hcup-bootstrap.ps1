@@ -39,7 +39,7 @@ try {
   # installed (.NET 4.5 is an in-place upgrade).
   [System.Net.ServicePointManager]::SecurityProtocol = 3072 -bor 768 -bor 192 -bor 48
 } catch {
-  Write-Output 'Unable to set PowerShell to use TLS 1.2 and TLS 1.1 due to old .NET Framework installed. If you see underlying connection closed or trust errors, you may need to do one or more of the following: (1) upgrade to .NET Framework 4.5+ and PowerShell v3, (2) specify internal Chocolatey package location (set $env:chocolateyDownloadUrl prior to install or host the package internally), (3) use the Download + PowerShell method of install. See https://chocolatey.org/install for all install options.'
+  Write-Output 'Unable to set PowerShell to use TLS 1.2 and TLS 1.1 due to old .NET Framework installed. If you see underlying connection closed or trust errors, you may need to upgrade to .NET Framework 4.5+ and PowerShell v5'
 }
 
 function Get-Downloader {
@@ -54,15 +54,15 @@ param (
     $downloader.Credentials = $defaultCreds
   }
 
-  $ignoreProxy = $env:chocolateyIgnoreProxy
+  $ignoreProxy = $env:hcupIgnoreProxy
   if ($ignoreProxy -ne $null -and $ignoreProxy -eq 'true') {
     Write-Debug "Explicitly bypassing proxy due to user environment variable"
     $downloader.Proxy = [System.Net.GlobalProxySelection]::GetEmptyWebProxy()
   } else {
     # check if a proxy is required
-    $explicitProxy = $env:chocolateyProxyLocation
-    $explicitProxyUser = $env:chocolateyProxyUser
-    $explicitProxyPassword = $env:chocolateyProxyPassword
+    $explicitProxy = $env:hcupProxyLocation
+    $explicitProxyUser = $env:hcupProxyUser
+    $explicitProxyPassword = $env:hcupProxyPassword
     if ($explicitProxy -ne $null -and $explicitProxy -ne '') {
       # explicit proxy
       $proxy = New-Object System.Net.WebProxy($explicitProxy, $true)
@@ -108,7 +108,6 @@ param (
   [string]$url,
   [string]$file
  )
-  #Write-Output "Downloading $url to $file"
   $downloader = Get-Downloader $url
 
   $downloader.DownloadFile($url, $file)
@@ -130,14 +129,14 @@ $nodeUrl = "https://nodejs.org/dist/v8.15.1/node-v8.15.1-win-x64.zip"
 $nodeFile = Join-Path "$dataDir" "node-v8.15.1-win-x64.zip"
 
 Write-Output "Download $nodeUrl to $nodeFile"
-#Download-File $nodeUrl $nodeFile
+Download-File $nodeUrl $nodeFile
 
 if ($PSVersionTable.PSVersion.Major -lt 5) {
   throw "CANNOT EXTRACT psversion < 5"
 }
 
 Write-Output "Extract nodejs binary"
-#Expand-Archive -Path "$nodeFile" -DestinationPath "$dataDir" -Force
+Expand-Archive -Path "$nodeFile" -DestinationPath "$dataDir" -Force
 
 $tmpBin = Join-Path "$dataDir" "node-v8.15.1-win-x64"
 $tmpBin = Join-Path "$tmpBin" "node.exe"
@@ -163,4 +162,3 @@ Set-Content -Path "$bsFile" -Value @'
 '@
 
 Invoke-Expression "$nodeBin $bsFile"
-
