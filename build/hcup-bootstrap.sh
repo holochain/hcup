@@ -86,13 +86,16 @@ check_hash() {
 }
 
 __node_dir="${__data_dir}/${__node_dir}"
-__node_bin="${__node_dir}/bin/node"
+__bin_dir="${__data_dir}/bin"
+__node_exe="${__node_dir}/bin/node"
+__node_bin="${__bin_dir}/hcup-node"
 
 echo "data dir: ${__data_dir}"
 echo "    arch: ${__arch}"
 echo "node_bin: ${__node_bin}"
 
 mkdir -p "${__data_dir}"
+mkdir -p "${__bin_dir}"
 
 if [ ! -f "${__node_bin}" ]; then
   if [ ! -f "${__data_dir}/${__node_file}" ]; then
@@ -110,6 +113,8 @@ if [ ! -f "${__node_bin}" ]; then
       die "failed to untar ${__data_dir}/${__node_file}"
     fi
   fi
+
+  cp -f "${__node_exe}" "${__node_bin}"
 fi
 
 __node_test_ver=`"${__node_bin}" --version`

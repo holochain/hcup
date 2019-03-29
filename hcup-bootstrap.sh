@@ -86,13 +86,16 @@ check_hash() {
 }
 
 __node_dir="${__data_dir}/${__node_dir}"
-__node_bin="${__node_dir}/bin/node"
+__bin_dir="${__data_dir}/bin"
+__node_exe="${__node_dir}/bin/node"
+__node_bin="${__bin_dir}/hcup-node"
 
 echo "data dir: ${__data_dir}"
 echo "    arch: ${__arch}"
 echo "node_bin: ${__node_bin}"
 
 mkdir -p "${__data_dir}"
+mkdir -p "${__bin_dir}"
 
 if [ ! -f "${__node_bin}" ]; then
   if [ ! -f "${__data_dir}/${__node_file}" ]; then
@@ -110,6 +113,8 @@ if [ ! -f "${__node_bin}" ]; then
       die "failed to untar ${__data_dir}/${__node_file}"
     fi
   fi
+
+  cp -f "${__node_exe}" "${__node_bin}"
 fi
 
 __node_test_ver=`"${__node_bin}" --version`
@@ -200,7 +205,8 @@ var hcup_bootstrap = (function (exports) {
 	  rcount,
 	  platform: os.platform(),
 	  arch: os.arch(),
-	  dataDir: null
+	  dataDir: null,
+	  binDir: null
 	};
 
 	if (exports.platform === 'linux') {
@@ -222,6 +228,8 @@ var hcup_bootstrap = (function (exports) {
 	if (!exports.dataDir) {
 	  throw new Error('failed to locate home directory')
 	}
+
+	exports.binDir = path.resolve(exports.dataDir, 'bin');
 
 	nix(exports);
 	osRelease(exports);
@@ -340,11 +348,12 @@ var hcup_bootstrap = (function (exports) {
 	};
 	});
 	var env_1 = env.dataDir;
-	var env_2 = env.setVerbose;
-	var env_3 = env.logger;
-	var env_4 = env.exec;
-	var env_5 = env.register;
-	var env_6 = env.addTarget;
+	var env_2 = env.binDir;
+	var env_3 = env.setVerbose;
+	var env_4 = env.logger;
+	var env_5 = env.exec;
+	var env_6 = env.register;
+	var env_7 = env.addTarget;
 
 	var platform = createCommonjsModule(function (module, exports) {
 	const crypto = require('crypto');
@@ -466,7 +475,7 @@ var hcup_bootstrap = (function (exports) {
 	    return new Promise((resolve, reject) => {
 	      try {
 	        url = new URL(url);
-	        log.i('[platform:download]', url.toString(), url.hostname, url.pathname);
+	        log.i('download', url.toString(), url.hostname, url.pathname);
 	        https.get({
 	          hostname: url.hostname,
 	          path: url.pathname + url.search,
@@ -476,7 +485,7 @@ var hcup_bootstrap = (function (exports) {
 	        }, res => {
 	          try {
 	            if (res.statusCode === 302) {
-	              return resolve(download(res.headers.location))
+	              return resolve(download(res.headers.location, fileHandle))
 	            }
 	            res.on('data', chunk => {
 	              try {
@@ -504,12 +513,10 @@ var hcup_bootstrap = (function (exports) {
 	  }
 
 	  env.register('platform', 'download', async args => {
-	    await env.exec('platform', 'mkdirp', { path: env.dataDir });
 	    const fileName = path.resolve(env.dataDir, args.fileName);
 
 	    try {
-	      if ((await $p(fs.stat)(fileName)
-	      ).isFile()) {
+	      if ((await $p(fs.stat)(fileName)).isFile()) {
 	        await env.exec('platform', 'sha256', {
 	          path: fileName, hash: args.hash
 	        });
@@ -529,7 +536,7 @@ var hcup_bootstrap = (function (exports) {
 	      await $p(fs.close)(fileHandle);
 	    }
 
-	    await exports.exec('platform', 'sha256', { path: fileName, hash: args.hash });
+	    await env.exec('platform', 'sha256', { path: fileName, hash: args.hash });
 	  });
 
 	  env.register('platform', 'shell', async args => {
@@ -760,7 +767,7 @@ var hcup_bootstrap = (function (exports) {
 	        url: 'https://nodejs.org/dist/v8.15.1/node-v8.15.1-linux-x64.tar.gz',
 	        fileName: 'node-v8.15.1-linux-x64.tar.gz',
 	        hash: '16e203f2440cffe90522f1e1855d5d7e2e658e759057db070a3dafda445d6d1f',
-	        nodeDir: path.resolve(env.dataDir, 'node-v8.15.1-linux-x64')
+	        nodeExe: path.resolve(env.dataDir, 'node-v8.15.1-linux-x64', 'bin', 'node')
 	      }
 	    },
 	    darwin: {
@@ -768,7 +775,7 @@ var hcup_bootstrap = (function (exports) {
 	        url: 'https://nodejs.org/dist/v8.15.1/node-v8.15.1-darwin-x64.tar.gz',
 	        fileName: 'node-v8.15.1-darwin-x64.tar.gz',
 	        hash: 'f3da0b4397150226c008a86c99d77dbb835dc62219d863654913a78332ab19a5',
-	        nodeDir: path.resolve(env.dataDir, 'node-v8.15.1-darwin-x64')
+	        nodeExe: path.resolve(env.dataDir, 'node-v8.15.1-darwin-x64', 'bin', 'node')
 	      }
 	    },
 	    win32: {
@@ -776,7 +783,7 @@ var hcup_bootstrap = (function (exports) {
 	        url: 'https://nodejs.org/dist/v8.15.1/node-v8.15.1-win-x64.zip',
 	        fileName: 'node-v8.15.1-win-x64.zip',
 	        hash: 'f636fa578dc079bacc6c4bef13284ddb893c99f7640b96701c2690bd9c1431f5',
-	        nodeDir: path.resolve(env.dataDir, 'node-v8.15.1-win-x64')
+	        nodeExe: path.resolve(env.dataDir, 'node-v8.15.1-win-x64', 'node.exe')
 	      }
 	    }
 	  };
@@ -811,7 +818,7 @@ var hcup_bootstrap = (function (exports) {
 	    if (env.platform === 'win32') {
 	      SINGLETON.nodeBin = path.resolve(env.dataDir, 'bin', 'hcup-node.exe');
 	    } else {
-	      SINGLETON.nodeBin = path.resolve(getNodeBin().nodeDir, 'bin', 'node');
+	      SINGLETON.nodeBin = path.resolve(env.dataDir, 'bin', 'hcup-node');
 	    }
 
 	    if (
@@ -859,7 +866,7 @@ var hcup_bootstrap = (function (exports) {
 	      await env.exec('platform', 'download', nodeBin);
 	      await env.exec('platform', 'shell', {
 	        cmd: 'sh',
-	        args: ['-c', `cd \\"${env.dataDir}\\" && tar xf \\"${nodeBin.fileName}\\"`]
+	        args: ['-c', `cd \\"${env.dataDir}\\" && tar xf \\"${nodeBin.fileName}\\" && cp -f \\"${nodeBin.nodeExe}\\" \\"${SINGLETON.nodeBin}\\"`]
 	      });
 	    });
 	  } else if (env.platform === 'win32') {
@@ -1054,6 +1061,9 @@ REM gitHash:${args.gitHash} REM
 	    } else if (env.platform === 'win32') {
 	      await win32CheckChoco();
 	    }
+
+	    await env.exec('platform', 'mkdirp', { path: env.dataDir });
+	    await env.exec('platform', 'mkdirp', { path: env.binDir });
 
 	    log.v(JSON.stringify(env, null, 2));
 	    log.i('platform', env.platform);
