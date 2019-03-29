@@ -132,18 +132,16 @@ var hcup_bootstrap = (function (exports) {
 
 	module.exports = exports = env => {
 	  try {
-	    if (env.selector.length > 1) {
+	    if (env.distro) {
 	      return
 	    }
 
 	    if (process.env.NIX_STORE) {
 	      env.distro = 'nix';
-	      env.selector.push('nix');
 	      const v = childProcess.execSync('nix-env --version').toString();
 	      const m = v.match(/nix-env \(Nix\) (.+)/);
 	      if (m && m.length >= 2) {
-	        env.selector.push(m[1]);
-	        env.distro_version = m[1];
+	        env.distroVersion = m[1];
 	      }
 	    }
 	  } catch (e) {
@@ -159,7 +157,7 @@ var hcup_bootstrap = (function (exports) {
 
 	module.exports = exports = env => {
 	  try {
-	    if (env.selector.length > 1) {
+	    if (env.distro) {
 	      return
 	    }
 
@@ -167,13 +165,13 @@ var hcup_bootstrap = (function (exports) {
 
 	    if (/ID=debian/m.test(res)) {
 	      env.distro = 'debian';
-	      env.selector.push('debian');
+	      env.packageTool = 'apt-get';
 	    } else if (/ID=ubuntu/m.test(res)) {
 	      env.distro = 'ubuntu';
-	      env.selector.push('ubuntu');
+	      env.packageTool = 'apt-get';
 	    } else if (/ID=fedora/m.test(res)) {
 	      env.distro = 'fedora';
-	      env.selector.push('fedora');
+	      env.packageTool = 'dnf';
 	    } else {
 	      // could not identify
 	      return
@@ -181,8 +179,7 @@ var hcup_bootstrap = (function (exports) {
 
 	    const m = res.match(/VERSION_ID="?([^"\s]+)"?/m);
 	    if (m && m.length >= 2) {
-	      env.selector.push(m[1]);
-	      env.distro_version = m[1];
+	      env.distroVersion = m[1];
 	    }
 	  } catch (e) { /* pass */ }
 	};
@@ -192,11 +189,18 @@ var hcup_bootstrap = (function (exports) {
 	const os = require('os');
 	const path = require('path');
 
+	let rcount = 1;
+	for (let r of process.argv) {
+	  if (r.startsWith('-r')) {
+	    rcount = parseInt(r.substr(2), 10) + 1;
+	  }
+	}
+
 	module.exports = exports = {
+	  rcount,
 	  platform: os.platform(),
 	  arch: os.arch(),
-	  dataDir: null,
-	  selector: [os.platform()]
+	  dataDir: null
 	};
 
 	if (exports.platform === 'linux') {
@@ -230,7 +234,20 @@ var hcup_bootstrap = (function (exports) {
 	    if (process.stderr.isTTY) {
 	      process.stderr.write(esc);
 	    }
-	    console.error(lvl, '[hcup]', '[' + tag + ']', ...args);
+	    const output = [];
+	    for (let arg of args) {
+	      if (arg instanceof Error) {
+	        arg = arg.stack || arg.toString();
+	      } else if (typeof arg === 'object') {
+	        arg = JSON.stringify(arg, null, 2);
+	      } else {
+	        arg = arg.toString();
+	      }
+	      output.push(arg);
+	    }
+	    for (let line of output.join(' ').split('\n')) {
+	      console.error(lvl, '[hcup]', '[' + tag + ']', line);
+	    }
 	    if (process.stderr.isTTY) {
 	      process.stderr.write('\x1b[0m');
 	    }
@@ -240,7 +257,7 @@ var hcup_bootstrap = (function (exports) {
 	      if (!isVerbose) {
 	        return
 	      }
-	      write('@v@', '\x1b[34m', ...args);
+	      write('@v@', '\x1b[36m', ...args);
 	    },
 	    i: (...args) => {
 	      write('-i-', '\x1b[32m', ...args);
@@ -251,10 +268,15 @@ var hcup_bootstrap = (function (exports) {
 	  }
 	};
 
-	// const log = exports.logger('env')
+	// don't enumerate
+	Object.defineProperty(exports, 'modules', {
+	  value: {}
+	});
 
-	exports.modules = {};
-	exports.targets = [];
+	// don't enumerate
+	Object.defineProperty(exports, 'targets', {
+	  value: {}
+	});
 
 	exports.exec = async (moduleName, fnName, ...args) => {
 	  if (!(moduleName in exports.modules)) {
@@ -279,23 +301,7 @@ var hcup_bootstrap = (function (exports) {
 	      'fn "' + fnName + '" not found in module "' + moduleName + '"')
 	  }
 
-	  let ref = modRef[fnName];
-	  let maybeFn = ref._;
-	  for (let s of exports.selector) {
-	    if (!(s in ref)) {
-	      break
-	    }
-	    ref = ref[s];
-	    if (ref._) {
-	      maybeFn = ref._;
-	    }
-	  }
-
-	  if (!maybeFn) {
-	    throw new Error('could not find selector fn')
-	  }
-
-	  const out = await maybeFn(...args);
+	  const out = await modRef[fnName](...args);
 
 	  if (fnName === '$init') {
 	    modRef.$initDone = true;
@@ -306,40 +312,37 @@ var hcup_bootstrap = (function (exports) {
 	  return out
 	};
 
-	exports.register = (moduleName, fnName, selector, fn) => {
+	exports.register = (moduleName, fnName, fn) => {
 	  if (!(moduleName in exports.modules)) {
 	    exports.modules[moduleName] = {};
 	  }
-	  let ref = exports.modules[moduleName];
-	  if (!(fnName in ref)) {
-	    ref[fnName] = {};
+	  const ref = exports.modules[moduleName];
+	  if (fnName in ref) {
+	    throw new Error('function "' + fnName + '" already registered for module "' + moduleName + '"')
 	  }
-	  ref = ref[fnName];
-	  for (let s of selector) {
-	    if (!(s in ref)) {
-	      ref[s] = {};
-	    }
-	    ref = ref[s];
-	  }
-	  ref._ = fn;
+	  ref[fnName] = fn;
 
 	  return exports
 	};
 
-	exports.registerTarget = (moduleName, ...args) => {
-	  exports.register(moduleName, ...args);
-	  exports.targets.push(moduleName);
-	  exports.targets = exports.targets.sort();
+	exports.addTarget = (moduleName, description) => {
+	  if (!(moduleName in exports.modules)) {
+	    throw new Error('cannot add target for non-existant module: "' + moduleName + '"')
+	  }
+	  if (moduleName in exports.targets) {
+	    throw new Error('duplicate target module name: "' + moduleName + '"')
+	  }
+	  exports.targets[moduleName] = description;
+
+	  return exports
 	};
 	});
 	var env_1 = env.dataDir;
 	var env_2 = env.setVerbose;
 	var env_3 = env.logger;
-	var env_4 = env.modules;
-	var env_5 = env.targets;
-	var env_6 = env.exec;
-	var env_7 = env.register;
-	var env_8 = env.registerTarget;
+	var env_4 = env.exec;
+	var env_5 = env.register;
+	var env_6 = env.addTarget;
 
 	var platform = createCommonjsModule(function (module, exports) {
 	const crypto = require('crypto');
@@ -371,9 +374,9 @@ var hcup_bootstrap = (function (exports) {
 	    }
 	  }
 
-	  env.register('platform', '$init', [], () => {});
+	  env.register('platform', '$init', () => {});
 
-	  env.register('platform', 'mkdirp', [], async args => {
+	  env.register('platform', 'mkdirp', async args => {
 	    return mkdirp(args.path)
 	  });
 
@@ -381,7 +384,7 @@ var hcup_bootstrap = (function (exports) {
 	    return new Promise((resolve, reject) => {
 	      try {
 	        url = new URL(url);
-	        env.log('[platform:download]', url.toString(), url.hostname, url.pathname);
+	        log.i('[platform:download]', url.toString(), url.hostname, url.pathname);
 	        https.get({
 	          hostname: url.hostname,
 	          path: url.pathname + url.search,
@@ -418,7 +421,7 @@ var hcup_bootstrap = (function (exports) {
 	    })
 	  }
 
-	  env.register('platform', 'sha256', [], async args => {
+	  env.register('platform', 'sha256', async args => {
 	    const hash = crypto.createHash('sha256');
 	    const fileHandle = await $p(fs.open)(args.path, 'r');
 	    let tmp = null;
@@ -434,7 +437,7 @@ var hcup_bootstrap = (function (exports) {
 	    }
 	  });
 
-	  env.register('platform', 'download', [], async args => {
+	  env.register('platform', 'download', async args => {
 	    await env.exec('platform', 'mkdirp', { path: env.dataDir });
 	    const fileName = path.resolve(env.dataDir, args.fileName);
 
@@ -463,7 +466,7 @@ var hcup_bootstrap = (function (exports) {
 	    await exports.exec('platform', 'sha256', { path: fileName, hash: args.hash });
 	  });
 
-	  env.register('platform', 'shell', [], async args => {
+	  env.register('platform', 'shell', async args => {
 	    return new Promise((resolve, reject) => {
 	      try {
 	        log.v('[shell]', args.cmd, JSON.stringify(args.args));
@@ -489,7 +492,7 @@ var hcup_bootstrap = (function (exports) {
 	    })
 	  });
 
-	  env.register('platform', 'shellCapture', [], async args => {
+	  env.register('platform', 'shellCapture', async args => {
 	    return new Promise((resolve, reject) => {
 	      try {
 	        log.v('[shellCapture]', args.cmd, JSON.stringify(args.args));
@@ -510,10 +513,20 @@ var hcup_bootstrap = (function (exports) {
 	          stderr = Buffer.concat([stderr, chunk]);
 	        });
 	        proc.on('close', code => {
+	          stdout = stdout.toString().trim();
+	          stderr = stderr.toString().trim();
 	          if (code === 0) {
-	            resolve(stdout.toString().trim());
+	            resolve({ stdout, stderr });
 	          } else {
-	            reject(new Error('code ' + code + ': ' + stderr.toString().trim()));
+	            const e = new Error(JSON.stringify({
+	              code,
+	              stdout,
+	              stderr
+	            }, null, 2));
+	            e.code = code;
+	            e.stdout = stdout;
+	            e.stderr = stderr;
+	            reject(e);
 	          }
 	        });
 	      } catch (e) {
@@ -522,13 +535,28 @@ var hcup_bootstrap = (function (exports) {
 	    })
 	  });
 
-	  env.register('platform', 'relaunch', [], async nodeBin => {
+	  env.register('platform', 'relaunch', async nodeBin => {
 	    return new Promise((resolve, reject) => {
 	      try {
-	        log.i('[relaunch] with "' + nodeBin + '"');
+	        if (env.rcount >= 5) {
+	          throw new Error('refusing to relaunch more than five times')
+	        }
+
+	        let addedR = false;
+	        const args = process.argv.slice(1).map(a => {
+	          if (a.startsWith('-r')) {
+	            addedR = true;
+	            return `"-r${env.rcount}"`
+	          }
+	          return '"' + a + '"'
+	        });
+	        if (!addedR) {
+	          args.push(`"-r${env.rcount}"`);
+	        }
+	        log.i('[relaunch] with "' + nodeBin + '"', args);
 	        const proc = childProcess.spawn(
 	          '"' + nodeBin + '"',
-	          process.argv.slice(1).map(a => '"' + a + '"'),
+	          args,
 	          {
 	            shell: true,
 	            stdio: 'inherit'
@@ -547,7 +575,7 @@ var hcup_bootstrap = (function (exports) {
 
 	var installApt = createCommonjsModule(function (module, exports) {
 	module.exports = exports = env => {
-	  async function installApt () {
+	  env.register('git', '$install', async () => {
 	    await env.exec('platform', 'shell', {
 	      cmd: 'sudo',
 	      args: ['apt-get', 'update']
@@ -556,23 +584,18 @@ var hcup_bootstrap = (function (exports) {
 	      cmd: 'sudo',
 	      args: ['apt-get', 'install', '-y', 'git']
 	    });
-	  }
-
-	  env.register('git', '$install', ['linux', 'debian'], installApt);
-	  env.register('git', '$install', ['linux', 'ubuntu'], installApt);
+	  });
 	};
 	});
 
 	var installDnf = createCommonjsModule(function (module, exports) {
 	module.exports = exports = env => {
-	  async function installApt () {
+	  env.register('git', '$install', async () => {
 	    await env.exec('platform', 'shell', {
 	      cmd: 'sudo',
 	      args: ['dnf', 'install', '-y', 'git']
 	    });
-	  }
-
-	  env.register('git', '$install', ['linux', 'fedora'], installApt);
+	  });
 	};
 	});
 
@@ -589,7 +612,7 @@ var hcup_bootstrap = (function (exports) {
 	    log.v('got: ' + ver);
 	  }
 
-	  env.register('git', '$init', [], async () => {
+	  env.register('git', '$init', async () => {
 	    try {
 	      await checkGitVersion();
 	      return
@@ -600,79 +623,88 @@ var hcup_bootstrap = (function (exports) {
 	    await checkGitVersion();
 	  });
 
-	  env.register('git', '$install', [], async () => {
-	    throw new Error('"git" not found in path. Please install "git".')
-	  });
-
-	  env.register('git', '$install', ['linux', 'nix'], async () => {
-	    await env.exec('platform', 'shell', {
-	      cmd: 'nix-env',
-	      args: ['-i', 'git']
+	  if (env.packageTool === 'apt-get') {
+	    installApt(env);
+	  } else if (env.packageTool === 'dnf') {
+	    installDnf(env);
+	  } else if (env.distro === 'nix') {
+	    env.register('git', '$install', async () => {
+	      await env.exec('platform', 'shell', {
+	        cmd: 'nix-env',
+	        args: ['-i', 'git']
+	      });
 	    });
-	  });
+	  } else {
+	    env.register('git', '$install', async () => {
+	      throw new Error('"git" not found in path. Please install "git".')
+	    });
+	  }
 
-	  installApt(env);
-	  installDnf(env);
-
-	  env.register('git', 'ensureRepoUpdated', [], async args => {
+	  env.register('git', 'ensureRepoUpdated', async args => {
 	    let needRelaunch = false;
 	    try {
-	      await env.exec('platform', 'shell', {
+	      log.v((await env.exec('platform', 'shellCapture', {
 	        cmd: 'git',
 	        args: [
 	          'clone',
 	          args.url,
 	          args.path
 	        ]
-	      });
+	      })).stdout);
 	      needRelaunch = true;
-	    } catch (e) { /* pass */ }
+	    } catch (e) {
+	      if (e.stack.includes('already exists')) {
+	        log.v(e);
+	      } else {
+	        throw e
+	      }
+	    }
 
-	    const b4Hash = await env.exec('platform', 'shellCapture', {
+	    const b4Hash = (await env.exec('platform', 'shellCapture', {
 	      cmd: 'git',
 	      args: [
 	        'rev-parse',
 	        'HEAD'
 	      ],
 	      cwd: args.path
-	    });
+	    })).stdout;
 
 	    log.v('before hash:', b4Hash);
 
-	    await env.exec('platform', 'shell', {
+	    log.v((await env.exec('platform', 'shellCapture', {
 	      cmd: 'git',
 	      args: [
 	        'reset',
 	        '--hard'
 	      ],
 	      cwd: args.path
-	    });
+	    })).stdout);
 
-	    await env.exec('platform', 'shell', {
+	    log.v((await env.exec('platform', 'shellCapture', {
 	      cmd: 'git',
 	      args: [
 	        'checkout',
 	        args.branch || 'master'
 	      ],
 	      cwd: args.path
-	    });
+	    })).stdout);
 
-	    await env.exec('platform', 'shell', {
+	    log.v((await env.exec('platform', 'shellCapture', {
 	      cmd: 'git',
 	      args: [
 	        'pull'
 	      ],
 	      cwd: args.path
-	    });
+	    })).stdout);
 
-	    const hash = await env.exec('platform', 'shellCapture', {
+	    const hash = (await env.exec('platform', 'shellCapture', {
 	      cmd: 'git',
 	      args: [
 	        'rev-parse',
 	        'HEAD'
 	      ],
 	      cwd: args.path
-	    });
+	    })).stdout;
 
 	    log.v('after hash:', hash);
 
@@ -736,7 +768,7 @@ var hcup_bootstrap = (function (exports) {
 	    return ref
 	  }
 
-	  env.register('node', '$init', [], async () => {
+	  env.register('node', '$init', async () => {
 	    let needRelaunch = false;
 
 	    log.v('checking node version === ' + WANT_VERSION);
@@ -752,10 +784,10 @@ var hcup_bootstrap = (function (exports) {
 	    let ver = '';
 
 	    try {
-	      ver = await env.exec('platform', 'shellCapture', {
+	      ver = (await env.exec('platform', 'shellCapture', {
 	        cmd: SINGLETON.nodeBin,
 	        args: ['--version']
-	      });
+	      })).stdout;
 	    } catch (e) { /* pass */ }
 
 	    log.v('[node] version:', ver);
@@ -764,10 +796,10 @@ var hcup_bootstrap = (function (exports) {
 	      needRelaunch = true;
 	      await env.exec('node', '$install');
 
-	      ver = await env.exec('platform', 'shellCapture', {
+	      ver = (await env.exec('platform', 'shellCapture', {
 	        cmd: SINGLETON.nodeBin,
 	        args: ['--version']
-	      });
+	      })).stdout;
 
 	      log.v('[node] version:', ver);
 
@@ -781,23 +813,21 @@ var hcup_bootstrap = (function (exports) {
 	    }
 	  });
 
-	  env.register('node', '$install', [], async () => {
-	    nodeFail();
-	  });
+	  if (env.platform === 'linux' || env.platform === 'darwin') {
+	    env.register('node', '$install', async () => {
+	      const nodeBin = getNodeBin();
 
-	  env.register('node', '$install', ['linux'], async () => {
-	    const nodeBin = getNodeBin();
-
-	    await env.exec('platform', 'download', nodeBin);
-	    await env.exec('platform', 'shell', {
-	      cmd: 'sh',
-	      args: ['-c', `cd \\"${env.dataDir}\\" && tar xf \\"${nodeBin.fileName}\\"`]
+	      await env.exec('platform', 'download', nodeBin);
+	      await env.exec('platform', 'shell', {
+	        cmd: 'sh',
+	        args: ['-c', `cd \\"${env.dataDir}\\" && tar xf \\"${nodeBin.fileName}\\"`]
+	      });
 	    });
-	  });
-
-	  env.register('node', 'writeLauncher', [], async () => {
-	    throw new Error('no such thing as a default launcher')
-	  });
+	  } else {
+	    env.register('node', '$install', async () => {
+	      nodeFail();
+	    });
+	  }
 
 	  async function writeBourneLauncher (args) {
 	    log.v('[node] check launcher version ===', args.gitHash);
@@ -816,10 +846,10 @@ var hcup_bootstrap = (function (exports) {
 
 	    await env.exec('platform', 'mkdirp', { path: binDir });
 
-	    const shPath = await env.exec('platform', 'shellCapture', {
+	    const shPath = (await env.exec('platform', 'shellCapture', {
 	      cmd: 'which',
 	      args: ['sh']
-	    });
+	    })).stdout;
 	    log.v('[node:writeLauncher] found shell path: "' + shPath + '"');
 
 	    fs.writeFileSync(launcher, `#! ${shPath}
@@ -851,10 +881,15 @@ exec "${SINGLETON.nodeBin}" "${env.dataDir}/repo/lib/index_entry.js" "$@"
 	    log.i('[node:writeLauncher] ---------------------------------------------');
 	  }
 
-	  env.register('node', 'writeLauncher', ['linux'], writeBourneLauncher);
-	  env.register('node', 'writeLauncher', ['darwin'], writeBourneLauncher);
+	  if (env.platform === 'linux' || env.platform === 'darwin') {
+	    env.register('node', 'writeLauncher', writeBourneLauncher);
+	  } else {
+	    env.register('node', 'writeLauncher', async () => {
+	      throw new Error('no such thing as a default launcher')
+	    });
+	  }
 
-	  env.register('node', 'relaunch', [], async () => {
+	  env.register('node', 'relaunch', async () => {
 	    return env.exec('platform', 'relaunch', SINGLETON.nodeBin)
 	  });
 	};
@@ -874,16 +909,7 @@ exec "${SINGLETON.nodeBin}" "${env.dataDir}/repo/lib/index_entry.js" "$@"
 	  try {
 	    log.i('checking bootstrap dependencies');
 
-	    log.v(JSON.stringify({
-	      platform: env.platform,
-	      arch: env.arch,
-	      dataDir: env.dataDir,
-	      selector: env.selector,
-	      distro: env.distro,
-	      distro_version: env.distro_version,
-	      modules: Object.keys(env.modules),
-	      targets: env.targets
-	    }, null, 2));
+	    log.v(JSON.stringify(env, null, 2));
 	    log.i('platform', env.platform);
 	    log.i('arch', env.arch);
 

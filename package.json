@@ -6,7 +6,7 @@
   "license": "Apache-2.0",
   "scripts": {
     "render-scripts": "node ./build/render-scripts.js",
-    "test": "standard lib/**/*.js build/**/*.js && rollup -c && npm run render-scripts"
+    "test": "standard 'lib/**/*.js' 'build/**/*.js' && rollup -c && npm run render-scripts"
   },
   "devDependencies": {
     "handlebars": "^4.1.1",
