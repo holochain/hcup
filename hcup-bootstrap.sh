@@ -387,6 +387,20 @@ var hcup_bootstrap = (function (exports) {
 
 	  env.register('platform', '$init', () => {});
 
+	  if (env.platform === 'win32') {
+	    env.register('platform', 'pathPrepend', (val) => {
+	      if (!process.env.PATH.includes(val)) {
+	        process.env.PATH = val + ';' + process.env.PATH;
+	      }
+	    });
+	  } else {
+	    env.register('platform', 'pathPrepend', (val) => {
+	      if (!process.env.PATH.includes(val)) {
+	        process.env.PATH = val + ':' + process.env.PATH;
+	      }
+	    });
+	  }
+
 	  env.register('platform', 'mkdirp', async args => {
 	    return mkdirp(args.path)
 	  });
