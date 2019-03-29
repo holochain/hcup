@@ -281,6 +281,8 @@ var hcup_bootstrap = (function (exports) {
 	        arg = arg.stack || arg.toString();
 	      } else if (typeof arg === 'object') {
 	        arg = JSON.stringify(arg, null, 2);
+	      } else if (!arg) {
+	        arg = '[undefined]';
 	      } else {
 	        arg = arg.toString();
 	      }
@@ -421,6 +423,85 @@ var hcup_bootstrap = (function (exports) {
 	    return mkdirp(args.path)
 	  });
 
+	  env.register('platform', 'readConfig', async () => {
+	    const configFN = path.resolve(env.dataDir, 'config.json');
+	    try {
+	      env.config = JSON.parse(fs.readFileSync(configFN));
+	    } catch (e) {
+	      env.config = {};
+	      await env.exec('platform', 'writeConfig');
+	    }
+	  });
+
+	  env.register('platform', 'writeConfig', async () => {
+	    const configFN = path.resolve(env.dataDir, 'config.json');
+	    fs.writeFileSync(configFN, JSON.stringify(env.config, null, 2));
+	  });
+
+	  if (env.packageTool === 'apt-get') {
+	    env.register('platform', 'installPackage', async (packageName) => {
+	      // non-capture shell so they can type sudo password
+	      await env.exec('platform', 'shell', {
+	        cmd: 'sudo',
+	        args: ['apt-get', 'update']
+	      });
+	      // non-capture shell so they can type sudo password
+	      await env.exec('platform', 'shell', {
+	        cmd: 'sudo',
+	        args: [
+	          'apt-get', 'install', '--no-install-recommends', '-y',
+	          packageName
+	        ]
+	      });
+	    });
+	  } else if (env.packageTool === 'dnf') {
+	    env.register('platform', 'installPackage', async (packageName) => {
+	      // non-capture shell so they can type sudo password
+	      await env.exec('platform', 'shell', {
+	        cmd: 'sudo',
+	        args: ['dnf', '--setopt=install_weak_deps=False', '--best', 'install',
+	          packageName
+	        ]
+	      });
+	    });
+	  } else if (env.platform === 'darwin') {
+	    env.register('platform', 'installPackage', async (packageName) => {
+	      // non-capture shell so they can interact with brew
+	      await env.exec('platform', 'shell', {
+	        cmd: 'brew',
+	        args: ['install', packageName]
+	      });
+	    });
+	  } else if (env.platform === 'win32') {
+	    env.register('platform', 'installPackage', async (packageName) => {
+	      // non-capture shell so they can interact with choco
+	      await env.exec('platform', 'shell', {
+	        cmd: 'choco.exe',
+	        args: ['install', packageName]
+	      });
+	    });
+	  } else {
+	    env.register('platform', 'installPackage', async (packageName) => {
+	      throw new Error('installPackage not configured for your system. Please manually install "' + packageName + '"')
+	    });
+	  }
+
+	  env.register('platform', 'sha256', async args => {
+	    const hash = crypto.createHash('sha256');
+	    const fileHandle = await $p(fs.open)(args.path, 'r');
+	    let tmp = null;
+	    const buffer = Buffer.alloc(4096);
+	    do {
+	      tmp = await $p(fs.read)(
+	        fileHandle, buffer, 0, buffer.byteLength, null);
+	      hash.update(buffer.slice(0, tmp.bytesRead));
+	    } while (tmp.bytesRead > 0)
+	    const gotHash = hash.digest().toString('hex');
+	    if (gotHash !== args.hash) {
+	      throw new Error('sha256 sum mismatch, file: ' + gotHash + ', expected: ' + args.hash)
+	    }
+	  });
+
 	  function download (url, fileHandle) {
 	    return new Promise((resolve, reject) => {
 	      try {
@@ -461,22 +542,6 @@ var hcup_bootstrap = (function (exports) {
 	      }
 	    })
 	  }
-
-	  env.register('platform', 'sha256', async args => {
-	    const hash = crypto.createHash('sha256');
-	    const fileHandle = await $p(fs.open)(args.path, 'r');
-	    let tmp = null;
-	    const buffer = Buffer.alloc(4096);
-	    do {
-	      tmp = await $p(fs.read)(
-	        fileHandle, buffer, 0, buffer.byteLength, null);
-	      hash.update(buffer.slice(0, tmp.bytesRead));
-	    } while (tmp.bytesRead > 0)
-	    const gotHash = hash.digest().toString('hex');
-	    if (gotHash !== args.hash) {
-	      throw new Error('sha256 sum mismatch, file: ' + gotHash + ', expected: ' + args.hash)
-	    }
-	  });
 
 	  env.register('platform', 'download', async args => {
 	    await env.exec('platform', 'mkdirp', { path: env.dataDir });
@@ -614,32 +679,6 @@ var hcup_bootstrap = (function (exports) {
 	};
 	});
 
-	var installApt = createCommonjsModule(function (module, exports) {
-	module.exports = exports = env => {
-	  env.register('git', '$install', async () => {
-	    await env.exec('platform', 'shell', {
-	      cmd: 'sudo',
-	      args: ['apt-get', 'update']
-	    });
-	    await env.exec('platform', 'shell', {
-	      cmd: 'sudo',
-	      args: ['apt-get', 'install', '-y', 'git']
-	    });
-	  });
-	};
-	});
-
-	var installDnf = createCommonjsModule(function (module, exports) {
-	module.exports = exports = env => {
-	  env.register('git', '$install', async () => {
-	    await env.exec('platform', 'shell', {
-	      cmd: 'sudo',
-	      args: ['dnf', 'install', '-y', 'git']
-	    });
-	  });
-	};
-	});
-
 	var git = createCommonjsModule(function (module, exports) {
 	module.exports = exports = env => {
 	  const log = env.logger('git');
@@ -664,22 +703,9 @@ var hcup_bootstrap = (function (exports) {
 	    await checkGitVersion();
 	  });
 
-	  if (env.packageTool === 'apt-get') {
-	    installApt(env);
-	  } else if (env.packageTool === 'dnf') {
-	    installDnf(env);
-	  } else if (env.distro === 'nix') {
-	    env.register('git', '$install', async () => {
-	      await env.exec('platform', 'shell', {
-	        cmd: 'nix-env',
-	        args: ['-i', 'git']
-	      });
-	    });
-	  } else {
-	    env.register('git', '$install', async () => {
-	      throw new Error('"git" not found in path. Please install "git".')
-	    });
-	  }
+	  env.register('git', '$install', async () => {
+	    await env.exec('platform', 'installPackage', 'git');
+	  });
 
 	  env.register('git', 'ensureRepoUpdated', async args => {
 	    let needRelaunch = false;
@@ -954,7 +980,7 @@ exec "${SINGLETON.nodeBin}" "${env.dataDir}/repo/lib/index_entry.js" "$@"
 	    log.i('platform', env.platform);
 	    log.i('arch', env.arch);
 
-	    log.v('git');
+	    log.v('verify git');
 	    const gitDir = path.resolve(env.dataDir, 'repo');
 
 	    const gitRes = await env.exec('git', 'ensureRepoUpdated', {
@@ -969,7 +995,7 @@ exec "${SINGLETON.nodeBin}" "${env.dataDir}/repo/lib/index_entry.js" "$@"
 	      process.exit(await env.exec('platform', 'relaunch', process.argv[0]));
 	    }
 
-	    log.v('node');
+	    log.v('verify node');
 	    const nodeRes = await env.exec('node', '$init');
 
 	    if (nodeRes && nodeRes.needRelaunch) {
@@ -977,6 +1003,10 @@ exec "${SINGLETON.nodeBin}" "${env.dataDir}/repo/lib/index_entry.js" "$@"
 	      process.exit(await env.exec('node', 'relaunch'));
 	    }
 
+	    log.v('verify config');
+	    await env.exec('platform', 'readConfig');
+
+	    log.v('verify launcher');
 	    await env.exec('node', 'writeLauncher', { gitHash: gitRes.hash });
 
 	    log.i('ready');
