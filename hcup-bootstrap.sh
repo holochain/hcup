@@ -510,7 +510,7 @@ var hcup_bootstrap = (function (exports) {
 	    try {
 	      if ((await $p(fs.stat)(fileName)
 	      ).isFile()) {
-	        await exports.exec('platform', 'sha256', {
+	        await env.exec('platform', 'sha256', {
 	          path: fileName, hash: args.hash
 	        });
 	        // file hash checks out, we're already good
@@ -770,6 +770,14 @@ var hcup_bootstrap = (function (exports) {
 	        hash: 'f3da0b4397150226c008a86c99d77dbb835dc62219d863654913a78332ab19a5',
 	        nodeDir: path.resolve(env.dataDir, 'node-v8.15.1-darwin-x64')
 	      }
+	    },
+	    win32: {
+	      x64: {
+	        url: 'https://nodejs.org/dist/v8.15.1/node-v8.15.1-win-x64.zip',
+	        fileName: 'node-v8.15.1-win-x64.zip',
+	        hash: 'f636fa578dc079bacc6c4bef13284ddb893c99f7640b96701c2690bd9c1431f5',
+	        nodeDir: path.resolve(env.dataDir, 'node-v8.15.1-win-x64')
+	      }
 	    }
 	  };
 
@@ -784,12 +792,12 @@ var hcup_bootstrap = (function (exports) {
 	  function getNodeBin () {
 	    let ref = NODE_BIN[env.platform];
 	    if (!ref) {
-	      env.error('[node] no node def for platform "' + env.platform + '"');
+	      log.e('[node] no node def for platform "' + env.platform + '"');
 	      nodeFail();
 	    }
 	    ref = ref[env.arch];
 	    if (!ref) {
-	      env.error('[node] no node def for arch "' + env.arch + '"');
+	      log.e('[node] no node def for arch "' + env.arch + '"');
 	      nodeFail();
 	    }
 	    return ref
@@ -800,7 +808,11 @@ var hcup_bootstrap = (function (exports) {
 
 	    log.v('checking node version === ' + WANT_VERSION);
 
-	    SINGLETON.nodeBin = path.resolve(getNodeBin().nodeDir, 'bin', 'node');
+	    if (env.platform === 'win32') {
+	      SINGLETON.nodeBin = path.resolve(env.dataDir, 'bin', 'hcup-node.exe');
+	    } else {
+	      SINGLETON.nodeBin = path.resolve(getNodeBin().nodeDir, 'bin', 'node');
+	    }
 
 	    if (
 	      process.version !== WANT_VERSION || process.argv[0] !== SINGLETON.nodeBin
@@ -848,6 +860,24 @@ var hcup_bootstrap = (function (exports) {
 	      await env.exec('platform', 'shell', {
 	        cmd: 'sh',
 	        args: ['-c', `cd \\"${env.dataDir}\\" && tar xf \\"${nodeBin.fileName}\\"`]
+	      });
+	    });
+	  } else if (env.platform === 'win32') {
+	    env.register('node', '$install', async () => {
+	      const nodeBin = getNodeBin();
+
+	      await env.exec('platform', 'download', nodeBin);
+	      await env.exec('platform', 'shell', {
+	        cmd: process.env.SystemRoot + '\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
+	        args: [
+	          '-NoProfile',
+	          '-InputFormat',
+	          'None',
+	          '-ExecutionPolicy',
+	          'Bypass',
+	          '-Command',
+	          `Expand-Archive -Path "${path.resolve(env.dataDir, nodeBin.fileName)}" -DestinationPath "${env.dataDir}" -Force; Copy-Item "${path.resolve(nodeBin.nodeDir, 'node.exe')}" -Destination "${SINGLETON.nodeBin}" -Force`
+	        ]
 	      });
 	    });
 	  } else {
@@ -1011,7 +1041,7 @@ REM gitHash:${args.gitHash} REM
 	  });
 
 	  // XXX make this cleaner
-	  log.e('please run `resetenv` or restart your terminal, then re-execute the hcup script');
+	  log.e('please run `refreshenv` or restart your terminal, then re-execute the hcup script');
 	  process.exit(1);
 	}
 
