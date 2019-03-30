@@ -273,7 +273,7 @@ var hcup_bootstrap = (function (exports) {
 	      write('-i-', '\x1b[32m', ...args);
 	    },
 	    e: (...args) => {
-	      write('#e#', '\x1b[31m', ...args);
+	      write('#e#', '\x1b[31m\x1b[40m', ...args);
 	    }
 	  }
 	};
@@ -311,7 +311,12 @@ var hcup_bootstrap = (function (exports) {
 	      'fn "' + fnName + '" not found in module "' + moduleName + '"')
 	  }
 
-	  const out = await modRef[fnName](...args);
+	  let out = null;
+	  try {
+	    out = await modRef[fnName](...args);
+	  } catch (e) {
+	    throw new Error(`error calling ${moduleName}:${fnName}, inner: ${e.stack}`)
+	  }
 
 	  if (fnName === '$init') {
 	    modRef.$initDone = true;
@@ -554,6 +559,7 @@ var hcup_bootstrap = (function (exports) {
 	  });
 
 	  env.register('platform', 'shell', async args => {
+	    const callCtx = (new Error('callCtx')).stack;
 	    return new Promise((resolve, reject) => {
 	      try {
 	        log.v('[shell]', args.cmd, JSON.stringify(args.args));
@@ -570,7 +576,7 @@ var hcup_bootstrap = (function (exports) {
 	          if (code === 0) {
 	            resolve();
 	          } else {
-	            reject(new Error('shell exited with code ' + code));
+	            reject(new Error('shell exited with code ' + code + ': ' + callCtx));
 	          }
 	        });
 	      } catch (e) {

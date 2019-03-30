@@ -147,13 +147,14 @@ Write-Output "Copy $tmpBin to $nodeBin"
 Copy-Item "$tmpBin" -Destination "$nodeBin" -Force
 
 Write-Output "Update PATH to include bin folder"
-if ($env:Path -like "*$binDir*") {
+$oldPath=(Get-ItemProperty -Path 'Registry::HKEY_LOCAL_MACHINE\System\CurrentControlSet\Control\Session Manager\Environment' -Name PATH).Path
+if ($oldPath -like "*$binDir*") {
   Write-Output "ALREADY IN PATH"
 } else {
   $env:Path += ";$binDir"
-  [Environment]::SetEnvironmentVariable
-    ("Path", $env:Path, [System.EnvironmentVariableTarget]::Machine)
+  Set-ItemProperty -Path 'Registry::HKEY_LOCAL_MACHINE\System\CurrentControlSet\Control\Session Manager\Environment' -Name PATH -Value "$oldPath;$binDir"
 }
+refreshenv
 
 Write-Output "Write Bootstrap Script"
 $bsFile = Join-Path "$dataDir" "bootstrap.js"
