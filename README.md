@@ -11,7 +11,7 @@
 
 Configure Holo the things!
 
-This is a work in progress, please help us test it, but there may be bugs!
+:warning: This is a work in progress, please help us test it, but there may be bugs! :warning:
 
 Configure your system and fetch holochain commandline binaries `hc` (the holochain utility) and `holochain` (the rust conductor).
 
