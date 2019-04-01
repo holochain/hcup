@@ -22,7 +22,7 @@ Configure your system and fetch holochain commandline binaries `hc` (the holocha
 Uses native system package management, but there are a lot of Linux distros out there... will fall back to recommending you install something and run the script again. Help us out by submitting patches for your system!
 
 ```
-sh -c "$(curl -fsSL https://raw.githubusercontent.com/neonphog/hcup/master/hcup-bootstrap.sh)"
+sh -c "$(curl -fsSL https://raw.githubusercontent.com/holochain/hcup/master/hcup-bootstrap.sh)"
 ```
 
 (Expects some basic system utilities to be avaliable: `sudo`, `curl`, `which`, `tar`, etc)
@@ -32,7 +32,7 @@ sh -c "$(curl -fsSL https://raw.githubusercontent.com/neonphog/hcup/master/hcup-
 Uses [Homebrew](https://brew.sh/).
 
 ```
-sh -c "$(curl -fsSL https://raw.githubusercontent.com/neonphog/hcup/master/hcup-bootstrap.sh)"
+sh -c "$(curl -fsSL https://raw.githubusercontent.com/holochain/hcup/master/hcup-bootstrap.sh)"
 ```
 
 Will install `brew` if not already installed.
@@ -44,7 +44,7 @@ Uses [Chocolatey](https://chocolatey.org/).
 In an ADMIN powershell (v5):
 
 ```
-Set-ExecutionPolicy Bypass -Scope Process -Force; iex ((New-Object System.Net.WebClient).DownloadString('https://raw.githubusercontent.com/neonphog/hcup/master/hcup-bootstrap.ps1'))
+Set-ExecutionPolicy Bypass -Scope Process -Force; iex ((New-Object System.Net.WebClient).DownloadString('https://raw.githubusercontent.com/holochain/hcup/master/hcup-bootstrap.ps1'))
 ```
 
 Will install `choco.exe` if not already installed. Please see [Chocolatey Install](https://chocolatey.org/install) for information on why an "Admin" Powershell is required.

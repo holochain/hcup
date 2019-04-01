@@ -1093,7 +1093,7 @@ REM gitHash:${args.gitHash} REM
 	    const gitDir = path.resolve(env.dataDir, 'repo');
 
 	    const gitRes = await env.exec('git', 'ensureRepoUpdated', {
-	      url: 'https://github.com/neonphog/hcup.git',
+	      url: 'https://github.com/holochain/hcup.git',
 	      path: gitDir,
 	      branch: 'master'
 	    });
