@@ -123,7 +123,7 @@ A: The "shell one-liner" is supposed to do the minimal amount of work to get a n
 
 ### Q: What Can I Help With?
 
-A: Please view the issues in this repository for things we still need to do!
+A: Please view the [issues in this repository](https://github.com/holochain/hcup/issues) for things we still need to do!
 
 ## License
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
