@@ -953,7 +953,7 @@ exec "${SINGLETON.nodeBin}" "${env.dataDir}/repo/lib/index_entry.js" "$@"
 	      profile = path.resolve(os.homedir(), '.bash_profile');
 	    }
 
-	    const addPath = `export "PATH=${binDir}:$PATH"`;
+	    const addPath = `export PATH="${binDir}:$PATH"`;
 	    try {
 	      const contents = fs.readFileSync(profile);
 	      if (contents.includes(binDir)) {
